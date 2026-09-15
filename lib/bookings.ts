@@ -55,6 +55,22 @@ export type Profile = {
   role: 'student' | 'guide' | 'admin'
 }
 
+/** Self-reported guide location (PLAN.md §5.4, §9). Never inferred. */
+export type Presence = {
+  user_id: string
+  status: 'roaming' | 'in_room' | 'off_campus' | 'dnd'
+  room_id: number | null
+  note: string | null
+  updated_at: string
+}
+
+export const PRESENCE_LABEL: Record<Presence['status'], string> = {
+  roaming: 'Around campus',
+  in_room: 'In a room',
+  off_campus: 'Off campus',
+  dnd: 'Do not disturb',
+}
+
 export type GuideMru = {
   guide_email: string
   confirmed: boolean

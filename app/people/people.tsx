@@ -1,0 +1,243 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import {
+  ACTIVE_STATUSES, PRESENCE_LABEL, displayName, parseRange,
+  type Booking, type Presence, type Profile,
+} from '@/lib/bookings'
+import { fmtTime } from '@/lib/time'
+
+// ---------------------------------------------------------------------------
+// Shapes as fetched (with the profile join). Exported for the server page.
+// ---------------------------------------------------------------------------
+type Person = { id: string; display_name: string | null; full_name: string; role: Profile['role']; visible?: boolean }
+export type RoomLite = { id: number; name: string; zones: { name: string } | null }
+export type PersonBooking = Pick<Booking, 'id' | 'room_id' | 'user_id' | 'during' | 'status'> & { user: Person | null }
+export type PersonPresence = Presence & { user: Person | null }
+
+type Props = {
+  me: Profile
+  rooms: RoomLite[]
+  initialCurrent: PersonBooking[]
+  initialPresence: PersonPresence[]
+}
+
+export default function People({ me, rooms, initialCurrent, initialPresence }: Props) {
+  const [q, setQ] = useState('')
+  const searching = q.trim().length > 0
+  const [results, setResults] = useState<Person[]>([])            // only read while `searching`
+  const [upcoming, setUpcoming] = useState<PersonBooking[]>([])   // next bookings for search results
+  const [current, setCurrent] = useState(initialCurrent)
+  const [presence, setPresence] = useState(initialPresence)
+  const [now, setNow] = useState(() => new Date())
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const roomById = useMemo(() => new Map(rooms.map((r) => [r.id, r])), [rooms])
+  const isStaff = me.role !== 'student'
+
+  // --- live data -----------------------------------------------------------
+  const refetchLive = useCallback(async () => {
+    const sb = createClient()
+    const t = new Date()
+    const nowRange = `[${t.toISOString()},${new Date(t.getTime() + 60000).toISOString()})`
+    const [{ data: c }, { data: p }] = await Promise.all([
+      sb.from('bookings')
+        .select('id, room_id, user_id, during, status, user:profiles!user_id(id, display_name, full_name, role, visible)')
+        .in('status', [...ACTIVE_STATUSES]).overlaps('during', nowRange),
+      sb.from('presence')
+        .select('user_id, status, room_id, note, updated_at, user:profiles!user_id(id, display_name, full_name, role, visible)'),
+    ])
+    if (c) setCurrent(c as unknown as PersonBooking[])
+    if (p) setPresence(p as unknown as PersonPresence[])
+  }, [])
+
+  useEffect(() => {
+    const sb = createClient()
+    const ch = sb.channel('people')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => { void refetchLive() })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'presence' }, () => { void refetchLive() })
+      .subscribe()
+    const tick = setInterval(() => { setNow(new Date()); void refetchLive() }, 30_000)
+    inputRef.current?.focus()
+    return () => { void sb.removeChannel(ch); clearInterval(tick) }
+  }, [refetchLive])
+
+  // --- search (debounced) --------------------------------------------------
+  useEffect(() => {
+    const term = q.trim()
+    if (!term) return  // nothing to fetch; `searching` is derived from q, so no state to clear
+    const handle = setTimeout(async () => {
+      const sb = createClient()
+      const like = `%${term.replace(/[%_]/g, '')}%`
+      const { data: people } = await sb
+        .from('profiles')
+        .select('id, display_name, full_name, role')
+        .eq('visible', true)
+        .or(`display_name.ilike.${like},full_name.ilike.${like}`)
+        .limit(20)
+      const list = (people ?? []) as Person[]
+      list.sort((a, b) => rank(a) - rank(b) || displayName(a).localeCompare(displayName(b)))
+      setResults(list)
+      if (list.length) {
+        const t = new Date()
+        const { data: next } = await sb
+          .from('bookings')
+          .select('id, room_id, user_id, during, status')
+          .in('user_id', list.map((p) => p.id))
+          .in('status', [...ACTIVE_STATUSES])
+          .overlaps('during', `[${t.toISOString()},${new Date(t.getTime() + 24 * 3600000).toISOString()})`)
+        setUpcoming(((next ?? []) as PersonBooking[]))
+      } else setUpcoming([])
+    }, 200)
+    return () => clearTimeout(handle)
+  }, [q])
+
+  // --- where is someone? ---------------------------------------------------
+  function whereIs(personId: string): { text: string; tone: 'room' | 'away' | 'none' } {
+    const inRoom = current.find((b) => b.user_id === personId && b.status !== 'pending_approval')
+    if (inRoom) {
+      const { end } = parseRange(inRoom.during)
+      const r = roomById.get(inRoom.room_id)
+      return { text: `${r?.name ?? 'A room'}${r?.zones ? ` · ${r.zones.name}` : ''} · until ${fmtTime(end)}`, tone: 'room' }
+    }
+    const pr = presence.find((p) => p.user_id === personId)
+    if (pr) {
+      if (pr.status === 'in_room' && pr.room_id) {
+        const r = roomById.get(pr.room_id)
+        return { text: `${r?.name ?? 'A room'}${pr.note ? ` · ${pr.note}` : ''}`, tone: 'room' }
+      }
+      return { text: `${PRESENCE_LABEL[pr.status]}${pr.note ? ` · ${pr.note}` : ''}`, tone: pr.status === 'roaming' ? 'none' : 'away' }
+    }
+    const next = upcoming
+      .filter((b) => b.user_id === personId && parseRange(b.during).start > now)
+      .sort((a, b) => parseRange(a.during).start.getTime() - parseRange(b.during).start.getTime())[0]
+    if (next) {
+      const r = roomById.get(next.room_id)
+      return { text: `Not in a room · has ${r?.name ?? 'a room'} at ${fmtTime(parseRange(next.during).start)}`, tone: 'none' }
+    }
+    return { text: 'Not in a room right now', tone: 'none' }
+  }
+
+  // Default view: everyone who is somewhere right now. Guides first.
+  const rightNow: Person[] = useMemo(() => {
+    const seen = new Map<string, Person>()
+    for (const p of presence) if (p.user && p.user.visible !== false && p.status !== 'roaming') seen.set(p.user.id, p.user)
+    for (const b of current) if (b.user && b.user.visible !== false && b.status !== 'pending_approval') seen.set(b.user.id, b.user)
+    return [...seen.values()].sort((a, b) => rank(a) - rank(b) || displayName(a).localeCompare(displayName(b)))
+  }, [presence, current])
+
+  const list = searching ? results : rightNow
+
+  return (
+    <div className="space-y-6">
+      {isStaff && <StatusSetter me={me} rooms={rooms} mine={presence.find((p) => p.user_id === me.id)} onSaved={refetchLive} />}
+
+      <input
+        ref={inputRef}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search a name…"
+        autoComplete="off"
+        className="w-full rounded-xl border border-border bg-surface px-4 py-3 text-lg focus:border-navy focus:outline-none dark:focus:border-cyan"
+      />
+
+      <section>
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-navy dark:text-cyan">
+          {searching ? `${results.length} ${results.length === 1 ? 'match' : 'matches'}` : 'Right now'}
+        </h2>
+        {list.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted">
+            {searching ? 'No one by that name.' : 'Nobody is in a room right now.'}
+          </p>
+        ) : (
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
+            {list.map((p) => {
+              const w = whereIs(p.id)
+              return (
+                <li key={p.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-bold">
+                      {displayName(p)}
+                      {p.id === me.id && <span className="ml-1 font-normal text-muted">(you)</span>}
+                      {p.role !== 'student' && (
+                        <span className="ml-2 rounded-full bg-cyan/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-navy dark:text-cyan">guide</span>
+                      )}
+                    </p>
+                    <p className={`truncate text-sm ${w.tone === 'room' ? 'text-foreground' : 'text-muted'}`}>{w.text}</p>
+                  </div>
+                  <Pin tone={w.tone} />
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
+
+      <p className="text-center text-xs text-muted">
+        Location means “has a booking in a room”. Guides set their own status. Nothing is tracked.
+      </p>
+    </div>
+  )
+}
+
+function rank(p: Person) { return p.role === 'student' ? 1 : 0 }
+
+function Pin({ tone }: { tone: 'room' | 'away' | 'none' }) {
+  const cls = { room: 'bg-green-500', away: 'bg-neutral-400', none: 'bg-border' }[tone]
+  return <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${cls}`} aria-hidden />
+}
+
+// ---------------------------------------------------------------------------
+// Guides say where they are. Self-reported only (PLAN.md §9).
+// ---------------------------------------------------------------------------
+function StatusSetter({ me, rooms, mine, onSaved }: { me: Profile; rooms: RoomLite[]; mine?: PersonPresence; onSaved: () => void }) {
+  const [status, setStatus] = useState<Presence['status']>(mine?.status ?? 'roaming')
+  const [roomId, setRoomId] = useState<number | ''>(mine?.room_id ?? '')
+  const [note, setNote] = useState(mine?.note ?? '')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  async function save() {
+    setBusy(true); setMsg(null)
+    const sb = createClient()
+    const { error } = await sb.from('presence').upsert({
+      user_id: me.id, status, room_id: status === 'in_room' && roomId !== '' ? roomId : null,
+      note: note.trim() || null, updated_at: new Date().toISOString(),
+    })
+    setBusy(false)
+    setMsg(error ? error.message : 'Saved.')
+    if (!error) onSaved()
+  }
+
+  return (
+    <div className="rounded-xl border border-cyan/40 bg-cyan/10 p-4">
+      <p className="text-sm font-bold">Where are you?</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {(Object.keys(PRESENCE_LABEL) as Presence['status'][]).map((s) => (
+          <button key={s} type="button" onClick={() => setStatus(s)}
+            className={`rounded-full px-3 py-1.5 text-sm font-bold ${status === s ? 'bg-navy text-white' : 'bg-background text-foreground hover:bg-border'}`}>
+            {PRESENCE_LABEL[s]}
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {status === 'in_room' && (
+          <select value={roomId} onChange={(e) => setRoomId(e.target.value ? Number(e.target.value) : '')}
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+            <option value="">Which room?</option>
+            {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        )}
+        <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={80}
+          placeholder="Optional note — “back at 1:30”"
+          className="min-w-[12rem] flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+        <button onClick={save} disabled={busy || (status === 'in_room' && roomId === '')}
+          className="rounded-lg bg-navy px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+          {busy ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      {msg && <p className="mt-2 text-xs text-muted">{msg}</p>}
+    </div>
+  )
+}

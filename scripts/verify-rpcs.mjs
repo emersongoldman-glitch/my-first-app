@@ -53,17 +53,18 @@ try {
   const gus    = await signup('gus.x@alpha.school',    'Augustus Reyes')   // fresh, for extend tests
   const izzy   = await signup('izzy.x@alpha.school',   'Isabella Ng')
   const lulu   = await signup('lulu.x@alpha.school',   'Lucia Marsh')      // fresh, for in-app approvals
+  const oz     = await signup('oz.x@alpha.school',     'Oswald Kim')        // fresh, for horizon tests
   await q(`update profiles set role='guide' where id in ($1,$2)`, [kent, chloe])
   const room   = async (slug) => (await q(`select id from rooms where slug=$1`, [slug])).rows[0].id
   const hallway3 = await room('hallway-3'), hallway4 = await room('hallway-4'), conf1 = await room('conf-1')
 
-  // Next weekday at 10:00 campus time — always in the future, always open.
-  const { rows: [{ start }] } = await q(`
-    select (d + time '10:00') at time zone 'America/Chicago' as start
-      from generate_series((now() at time zone 'America/Chicago')::date + 1,
-                           (now() at time zone 'America/Chicago')::date + 7, '1 day') d
-     where extract(isodow from d) between 1 and 5 order by d limit 1`)
-  const T = (h, m = 0) => new Date(new Date(start).getTime() + (h * 60 + m) * 60000)
+  // Freeze the clock the RPCs read (app_now): Wednesday 2026-09-16, 10:00
+  // campus time. Every time-based rule below is now an exact assertion.
+  const FAKE_NOW = '2026-09-16T15:00:00Z'
+  const setNow = (iso) => q(`select set_config('app.fake_now', $1, false)`, [iso])
+  await setNow(FAKE_NOW)
+  const start = new Date(FAKE_NOW)
+  const T = (h, m = 0) => new Date(start.getTime() + (h * 60 + m) * 60000)
   const create = (roomId, from, to, extra = {}) => q(
     `select create_booking($1, $2, $3, $4, $5, $6) r`,
     [roomId, from, to, extra.purpose ?? null, extra.guide ?? null, extra.forUser ?? null]
@@ -107,17 +108,40 @@ try {
   await as(aarya)
   r = await expectErr(() => create(hallway4, T(2), T(2, 20)), /15 minute steps/)
   check('20-minute booking refused (granularity)', r.ok, r.msg)
+  await setNow('2026-09-16T11:30:00Z')  // 06:30 campus time, so 07:00 is ahead, not past
   r = await expectErr(() => create(hallway4, T(-3), T(-2)), /between/)
   check('07:00 start refused (before campus opens)', r.ok, r.msg)
+  await setNow(FAKE_NOW)
+  await setNow('2026-09-16T20:30:00Z')  // 15:30, so 16:30 is inside the 2h horizon
   r = await expectErr(() => create(hallway4, T(6, 30), T(7, 30)), /between/)
   check('booking past 17:00 refused', r.ok, r.msg)
+  await setNow(FAKE_NOW)
   const sat = new Date(start); sat.setDate(sat.getDate() + ((6 - sat.getDay() + 7) % 7 || 7))
-  r = await expectErr(() => create(hallway4, sat, new Date(sat.getTime() + 3600000)), /closed|days ahead/)
+  await as(kent)  // staff are exempt from the horizon, so this isolates the weekend rule
+  r = await expectErr(() => create(hallway4, sat, new Date(sat.getTime() + 3600000)), /closed/)
   check('weekend refused', r.ok, r.msg)
-  r = await expectErr(() => create(hallway4, new Date(Date.now() - 3600000), new Date()), /past/)
+  await as(aarya)
+  r = await expectErr(() => create(hallway4, T(-1), T(0)), /past/)
   check('past start refused', r.ok, r.msg)
+  await setNow('2026-09-16T12:50:00Z')  // 07:50, so an 08:00 start is 10 min ahead
   r = await expectErr(() => create(hallway4, T(-2), T(7), { guide: 'kent.auslander@alpha.school' }), /longest possible/)
   check('9h (08:00–17:00) refused even with a guide (hard ceiling)', r.ok, r.msg)
+  await setNow(FAKE_NOW)
+
+  // =========================================================================
+  console.log('\ncreate_booking — 2-hour horizon (D10)')
+  const seater = await room('upstairs-4seater')
+  await as(oz)
+  r = await expectErr(() => create(seater, T(3), T(4)), /up to 2 hours ahead/)
+  check('student booking 3h ahead is refused', r.ok, r.msg)
+  r = await expectErr(() => create(seater, T(2, 15), T(3)), /up to 2 hours ahead/)
+  check('2h15m ahead is refused', r.ok, r.msg)
+  const bh = await create(seater, T(2), T(2, 15))
+  check('exactly 2h ahead is allowed (boundary)', bh.status === 'reserved')
+  await as(kent)
+  const bk = await create(seater, T(3), T(4))
+  check('a guide can book 3h ahead (staff exempt)', bk.status === 'reserved')
+  await as(aarya)
 
   // aarya holds b1 (reserved) + b2 (pending) = 2 → limit
   r = await expectErr(() => create(hallway4, T(2), T(3)), /already have 2/)
@@ -135,7 +159,7 @@ try {
   console.log('\ncheck_in')
   const mkNow = async (userId, roomId, startOffsetMin, minutes = 60, st = 'reserved') => (await q(
     `insert into bookings (room_id,user_id,booked_by,during,status)
-     values ($1,$2,$2, tstzrange(now() + make_interval(mins => $3::int), now() + make_interval(mins => $3::int + $4::int),'[)'), $5) returning id`,
+     values ($1,$2,$2, tstzrange(public.app_now() + make_interval(mins => $3::int), public.app_now() + make_interval(mins => $3::int + $4::int),'[)'), $5) returning id`,
     [roomId, userId, startOffsetMin, minutes, st])).rows[0].id
   const podA = await room('upstairs-1'), podB = await room('upstairs-2'), podC = await room('underpass-1')
 

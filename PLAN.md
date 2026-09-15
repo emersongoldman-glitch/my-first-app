@@ -156,7 +156,7 @@ they can be tuned in week two without a deploy.
 | Min booking | 15 min | — |
 | **Max booking without approval** | **2 h** | **Any room, any student. Over 2 h needs a guide — see §6.1** |
 | Max booking with guide approval | 8 h | Effectively a full day; the guide is the judgment |
-| Booking horizon | 7 days out | Far enough to plan, near enough to stay accurate |
+| **Booking horizon** | **2 h ahead** (students); staff exempt | Rooms get booked when needed, not squatted days out. See D10 |
 | Concurrent bookings per student | 2 | One now, one later |
 | Total booked hours/day per student | 4 h | Backstop against hoarding; approved bookings exempt |
 | Campus hours | 8:00–17:00, Mon–Fri | Configurable; no bookings outside |
@@ -192,7 +192,9 @@ the one a guide should see.
    status → `declined`, the hold releases immediately, student notified with the guide's
    optional one-line reason.
 7. If nobody answers by the booking's start time, it expires and the room reopens. The
-   student is told, and can rebook at 2 hours with no approval needed.
+   student is told, and can rebook at 2 hours with no approval needed. Because students
+   book at most 2 hours ahead (D10), a guide has **under two hours** to answer — the
+   in-app inbox badge and the email both matter.
 
 **Why pending requests hold the room:** the alternative is that a student gets approval
 for a room someone else took in the meantime, which makes the approval worthless. The
@@ -680,6 +682,7 @@ Settled, with the reasoning, so they don't get reopened mid-build.
 | D6 | **Guide pairings are learned from use, not maintained.** The 55-student roster seeds the first prefill only; `guide_mru` takes over permanently once a request is answered. | 2026-09-15 | Pairings change every few weeks. Authoritative roster data = a re-upload chore forever, and silent staleness when someone forgets. |
 | D7 | Only a **confirmed** (answered) request promotes a guide to a student's default. | 2026-09-15 | A mistyped `@alpha.school` address fails silently — real domain, mail goes nowhere — and would otherwise become sticky. |
 | D8 | **A student can have several guides**, modelled as multiple rows rather than one column. Chloe's 13 are also Clay's. | 2026-09-15 | Found on the first real roster, so it's the normal case. A single `guide_id` column would have needed migrating out within the week. |
+| D10 | **Students may book at most 2 hours ahead.** Staff are exempt so a guide can hold a conference room for a scheduled session. Replaces the 7-day horizon. | 2026-09-15 | Pods are for the next hour, not next Tuesday. A long horizon fills the board with plans that don't happen, which is the same failure as no-shows. Consequence: a >2h approval request must be made within 2h of its start, so the guide has under two hours to answer before it expires. |
 | D9 | **Preferred names are seeded, not opt-in.** `display_name` on `profiles`, pre-filled for guides and for students from their roster name; everyone can change their own. Clay's account is `dustin.hansford@` (legal name); he goes by Clay. | 2026-09-15 | Google returns account names, not used names. A People board showing names students don't recognise defeats the app's whole purpose — and leaving people to find a settings toggle means most never will. |
 
 Question 6 in §11 (can a student re-ask a different guide after a decline) stays open —

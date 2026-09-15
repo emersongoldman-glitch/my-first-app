@@ -7,8 +7,10 @@ import type { RoomLive } from '@/lib/board'
 import { addMinutes, fmtDuration, fmtRange, fmtTime, nextSlot } from '@/lib/time'
 
 const SELF_SERVE_MAX = 120 // minutes; mirrors settings.max_self_serve_minutes
+const HORIZON_MIN = 120    // students book at most this far ahead (PLAN.md D10); staff exempt
 const QUICK = [15, 30, 45, 60, 90, 120]
 const LONG = [150, 180, 240, 300, 360, 420, 480]
+const STARTS: [string, number][] = [['Now', 0], ['+30 min', 30], ['+1 h', 60], ['+2 h', 120]]
 
 type Props = {
   live: RoomLive
@@ -93,30 +95,58 @@ export default function BookingSheet({ live, profile, guides, onClose, onBooked 
           <Confirmation pending={done.pending} checkedIn={done.checkedIn} start={start} end={done.end} guideEmail={guideEmail} onClose={onClose} />
         ) : (
           <div className="space-y-5">
-            {/* When */}
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-muted">Date</span>
-                <input
-                  type="date"
-                  value={dateStr}
-                  min={toLocalDate(now)}
-                  max={toLocalDate(addMinutes(now, 7 * 24 * 60))}
-                  onChange={(e) => setStart(fromLocal(e.target.value, timeStr))}
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-muted">Start</span>
-                <input
-                  type="time"
-                  step={900}
-                  value={timeStr}
-                  onChange={(e) => setStart(fromLocal(dateStr, e.target.value))}
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2"
-                />
-              </label>
-            </div>
+            {/* When. Students book for the next two hours, not next week (D10). */}
+            {isStaff ? (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-muted">Date</span>
+                  <input
+                    type="date"
+                    value={dateStr}
+                    min={toLocalDate(now)}
+                    max={toLocalDate(addMinutes(now, 7 * 24 * 60))}
+                    onChange={(e) => setStart(fromLocal(e.target.value, timeStr))}
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-muted">Start</span>
+                  <input
+                    type="time"
+                    step={900}
+                    value={timeStr}
+                    onChange={(e) => setStart(fromLocal(dateStr, e.target.value))}
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2"
+                  />
+                </label>
+              </div>
+            ) : (
+              <div>
+                <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted">
+                  Start <span className="font-normal normal-case tracking-normal">· up to 2 hours ahead</span>
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {STARTS.map(([label, offset]) => {
+                    const s = offset === 0 ? nextSlot(now) : addMinutes(nextSlot(now), offset)
+                    return (
+                      <Chip key={label} active={Math.abs(start.getTime() - s.getTime()) < 60000} onClick={() => setStart(s)}>
+                        {label}
+                      </Chip>
+                    )
+                  })}
+                  <input
+                    type="time"
+                    step={900}
+                    value={timeStr}
+                    min={toLocalTime(now)}
+                    max={toLocalTime(addMinutes(now, HORIZON_MIN))}
+                    onChange={(e) => setStart(fromLocal(toLocalDate(now), e.target.value))}
+                    className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm"
+                    aria-label="Start time"
+                  />
+                </div>
+              </div>
+            )}
 
             {/* How long */}
             <div>

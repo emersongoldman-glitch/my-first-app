@@ -62,6 +62,9 @@ export default async function Home() {
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           <SignOutButton />
+          <Link href="/people" className="text-sm font-bold text-navy hover:underline dark:text-cyan">
+            Find someone →
+          </Link>
           <Link href="/bookings" className="text-sm font-bold text-navy hover:underline dark:text-cyan">
             My bookings →
           </Link>

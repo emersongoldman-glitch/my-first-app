@@ -3,9 +3,10 @@
 Pod and conference room reservations for Alpha High School — plus a live board showing
 who's where, so students can actually find their guides and each other.
 
-**Status:** Phase 1 code complete — booking, check-in, approvals, sweeps, live board.
-A project set up before Phase 1 needs [`supabase/upgrades/2026-09-15_phase1.sql`](supabase/upgrades/2026-09-15_phase1.sql)
-pasted into the SQL Editor once.
+**Status:** Phase 1 complete and live — booking, check-in, approvals, sweeps, a live map/list
+board with a next-2-hours view per room, People search, guide/student confirmation at sign-in,
+staff-managed rooms and guides, and Slack deep links. Databases set up earlier apply the files in
+[`supabase/upgrades/`](supabase/upgrades/) in order, each pasted into the SQL Editor once.
 
 ## Start here
 
@@ -43,8 +44,9 @@ npm run dev
 | `npm run dev` | Dev server at http://localhost:3000 |
 | `npm run build` | Production build |
 | `npm run verify` | Everything below, in sequence. |
-| `npm run verify:schema` | Every migration + seed against a throwaway Postgres; 26 checks on constraints, auth, roster, RLS. **No Docker needed.** |
-| `npm run verify:rpcs` | 53 checks on the booking RPCs: the 2-hour gate, quotas, check-in window, tokens, overrides, sweeps, grant boundaries. |
+| `npm run verify:lib` | 19 checks on the pure helpers — notably that Postgres timestamps like `15:00:00+00` parse (they once didn't, and took down /people). |
+| `npm run verify:schema` | Every migration + seed against a throwaway Postgres; 51 checks on constraints, auth, roster, RLS, room management, role confirmation. **No Docker needed.** |
+| `npm run verify:rpcs` | 57 checks on the booking RPCs against a frozen clock: the 2-hour gate, horizon, quotas, check-in window, tokens, overrides, sweeps, grant boundaries. |
 | `npm run verify:bootstrap` | The pasteable setup files apply cleanly, and the reset recovers a half-built database. |
 
 `npm run verify:schema` is the one to run after touching any SQL. It proves, among other
@@ -71,6 +73,31 @@ in, so it's yours to do:
    ```sql
    update profiles set role = 'admin' where email = 'emerson.goldman@alpha.school';
    ```
+
+## Slack — "Message on Slack"
+
+The People page can open a Slack DM with anyone listed. No in-app chat: students already use
+Slack, and a messaging surface for minors is moderation we don't want to own. To turn it on:
+
+1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps) → **From scratch**, in the
+   school workspace. Under **OAuth & Permissions → Bot Token Scopes** add `users:read` and
+   `users:read.email`. **Install to Workspace** and copy the **Bot User OAuth Token** (`xoxb-…`).
+2. Find the **team id**: the `T…` segment in any Slack URL, e.g. `https://app.slack.com/client/T0123ABCD/…`.
+3. On Vercel → Project → **Settings → Environment Variables**, add for Production:
+   - `NEXT_PUBLIC_SLACK_TEAM_ID` = the team id (plain config)
+   - `SLACK_BOT_TOKEN` = the bot token (**sensitive**)
+   - `SUPABASE_SERVICE_ROLE_KEY` = from Supabase → Project Settings → API (**sensitive**; the
+     lookup route needs it to cache ids for other people's profiles)
+4. Redeploy. A **Slack** button appears next to each person on the People page.
+
+Lookups go through `/api/slack/lookup`, server-side only, and are cached on `profiles` for 7 days.
+
+## Live board views
+
+**Map** draws itself from the rooms table — zones as areas, rooms as tiles sized by seats and
+coloured by state (open / booked / yours / held), floor switch when a campus has more than one.
+It needs no hand-drawn floor plan, so renaming or adding rooms updates it automatically.
+**List** is the same data as rows. Tapping a room shows who has it for the next two hours.
 
 ## Open items
 

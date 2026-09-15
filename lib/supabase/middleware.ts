@@ -1,7 +1,12 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_PATHS = ['/login', '/auth']
+const PUBLIC_PATHS = [
+  '/login',
+  '/auth',
+  // The fake-data preview exists only under `next dev`; the page itself 404s elsewhere.
+  ...(process.env.NODE_ENV === 'development' ? ['/dev'] : []),
+]
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })

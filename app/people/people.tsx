@@ -7,6 +7,7 @@ import {
   type Booking, type Presence, type Profile,
 } from '@/lib/bookings'
 import { fmtTime } from '@/lib/time'
+import { lookupSlackUser, slackDmUrl, slackEnabled } from '@/lib/slack'
 
 // ---------------------------------------------------------------------------
 // Shapes as fetched (with the profile join). Exported for the server page.
@@ -32,6 +33,18 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
   const [presence, setPresence] = useState(initialPresence)
   const [now, setNow] = useState(() => new Date())
   const inputRef = useRef<HTMLInputElement>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const say = (m: string) => { setToast(m); setTimeout(() => setToast(null), 4000) }
+
+  // Open the window synchronously (popup blockers allow that on a click), then
+  // point it at the DM once the lookup returns.
+  async function messageOnSlack(personId: string, name: string) {
+    const w = window.open('', '_blank')
+    const r = await lookupSlackUser(personId)
+    if (!r.ok) { w?.close(); say(`${name}: ${r.error}`); return }
+    const url = slackDmUrl(r.slackUserId)
+    if (w) w.location.assign(url); else window.location.assign(url)
+  }
 
   const roomById = useMemo(() => new Map(rooms.map((r) => [r.id, r])), [rooms])
   const isStaff = me.role !== 'student'
@@ -166,7 +179,19 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
                     </p>
                     <p className={`truncate text-sm ${w.tone === 'room' ? 'text-foreground' : 'text-muted'}`}>{w.text}</p>
                   </div>
-                  <Pin tone={w.tone} />
+                  <div className="flex shrink-0 items-center gap-3">
+                    {slackEnabled && p.id !== me.id && (
+                      <button
+                        type="button"
+                        onClick={() => messageOnSlack(p.id, displayName(p))}
+                        className="rounded-lg border border-border px-2.5 py-1 text-xs font-bold text-navy hover:bg-background dark:text-cyan"
+                        title={`Message ${displayName(p)} on Slack`}
+                      >
+                        Slack
+                      </button>
+                    )}
+                    <Pin tone={w.tone} />
+                  </div>
                 </li>
               )
             })}
@@ -177,6 +202,10 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
       <p className="text-center text-xs text-muted">
         Location means “has a booking in a room”. Guides set their own status. Nothing is tracked.
       </p>
+
+      {toast && (
+        <div className="fixed inset-x-4 bottom-6 z-40 mx-auto max-w-md rounded-xl bg-foreground px-4 py-3 text-center text-sm font-medium text-background shadow-xl">{toast}</div>
+      )}
     </div>
   )
 }

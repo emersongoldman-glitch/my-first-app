@@ -45,7 +45,7 @@ export default async function Home() {
   const name = me.display_name ?? me.full_name
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-8">
+    <main className="mx-auto max-w-4xl px-6 py-8">
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
           <Image src="/brand/wolf-lockup-navy.svg" alt="Alpha High School" width={150} height={72} priority className="mb-4 h-auto w-[150px] dark:hidden" />

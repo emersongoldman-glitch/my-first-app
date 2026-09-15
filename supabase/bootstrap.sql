@@ -880,6 +880,18 @@ $$;
 revoke all on function random_token() from public, anon, authenticated;
 
 
+-- Which JWT role is calling — 'anon', 'authenticated', 'service_role', or
+-- null when there is no JWT at all (SQL editor, migrations, pg_cron). Reads
+-- both claim shapes PostgREST has used, the way Supabase's own auth.role() does.
+create or replace function jwt_role()
+returns text language sql stable set search_path = '' as $$
+  select coalesce(
+    nullif(current_setting('request.jwt.claim.role', true), ''),
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'
+  )
+$$;
+
+
 -- ---------------------------------------------------------------------------
 -- mint_approval_token
 --
@@ -897,8 +909,9 @@ declare
   v_token text;
   v_ttl   interval := interval '14 days';
 begin
-  if current_setting('request.jwt.claim.role', true) is distinct from 'service_role'
-     and current_user not in ('postgres', 'supabase_admin') then
+  -- Only the service role (the send-email route) or a direct connection with
+  -- no JWT (dashboard, cron) may mint. A signed-in user never can.
+  if public.jwt_role() in ('anon', 'authenticated') then
     raise exception 'Not permitted.' using errcode = 'insufficient_privilege';
   end if;
 
@@ -927,6 +940,13 @@ create or replace function apply_decision(
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
 declare a record; b record;
 begin
+  -- Belt and braces: EXECUTE is revoked from clients below, but a signed-in
+  -- non-staff caller must fail here too, so a future grant slip cannot let a
+  -- student approve their own request.
+  if public.jwt_role() in ('anon', 'authenticated') and not public.is_staff() then
+    raise exception 'Not permitted.' using errcode = 'insufficient_privilege';
+  end if;
+
   select * into a from public.approvals where booking_id = p_booking_id;
   if not found then raise exception 'No approval request for that booking.'; end if;
 
@@ -965,6 +985,10 @@ begin
   return jsonb_build_object('booking_id', p_booking_id, 'decision', p_decision,
                             'already_decided', false);
 end $$;
+
+-- Internal. Without this a signed-in student could call it directly via RPC
+-- and approve their own request, bypassing the token entirely.
+revoke all on function apply_decision(uuid, text, uuid, text) from public, anon, authenticated;
 
 
 -- ---------------------------------------------------------------------------
@@ -1092,7 +1116,10 @@ returns jsonb language sql security definer set search_path = '' as $$
   )
 $$;
 
-revoke all on function run_sweeps() from public, anon, authenticated;
+revoke all on function run_sweeps()                  from public, anon, authenticated;
+revoke all on function release_no_shows()            from public, anon, authenticated;
+revoke all on function expire_pending_approvals()    from public, anon, authenticated;
+revoke all on function complete_finished_bookings()  from public, anon, authenticated;
 
 
 -- ---------------------------------------------------------------------------
@@ -1131,6 +1158,52 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
   return new;
+end $$;
+
+-- ==== 20260915000900_harden_grants.sql ============================================
+
+-- ============================================================================
+-- Functions a client must never call directly.
+--
+-- Postgres grants EXECUTE on new functions to PUBLIC by default, and PostgREST
+-- exposes every public function as an RPC. Anything SECURITY DEFINER that is
+-- not meant as an entry point has to be revoked explicitly or it is an
+-- unauthenticated back door.
+-- ============================================================================
+
+-- Links a roster row to any user id you pass. Admin-only via a future wrapper.
+revoke all on function link_roster_student(uuid, text) from public, anon, authenticated;
+
+-- Pure helpers; harmless, but no reason to expose them as RPCs either.
+revoke all on function sha256_hex(text) from public, anon, authenticated;
+revoke all on function setting_int(text) from public, anon, authenticated;
+
+-- Sanity check, so a future migration cannot quietly regress this.
+-- Every SECURITY DEFINER function in public that anon/authenticated CAN
+-- execute must be on this allow-list of intended entry points.
+do $$
+declare
+  v_bad text;
+begin
+  select string_agg(p.proname, ', ' order by p.proname) into v_bad
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.prosecdef
+     and p.prorettype <> 'trigger'::regtype
+     and (has_function_privilege('authenticated', p.oid, 'EXECUTE')
+          or has_function_privilege('anon', p.oid, 'EXECUTE'))
+     and p.proname not in (
+       -- intended client entry points
+       'create_booking', 'check_in', 'cancel_booking', 'extend_booking',
+       'decide_as_guide',
+       -- read-only role/display helpers used by RLS policies and views
+       'is_staff', 'is_admin', 'current_role_is', 'display_of',
+       'assert_booking_window'
+     );
+  if v_bad is not null then
+    raise exception 'SECURITY DEFINER functions exposed to clients without review: %', v_bad;
+  end if;
 end $$;
 
 -- ==== seed.sql ====================================================

@@ -9,7 +9,9 @@
     "lint": "eslint",
     "verify:schema": "node scripts/verify-schema.mjs",
     "build:bootstrap": "bash scripts/build-bootstrap.sh",
-    "verify:bootstrap": "node scripts/verify-bootstrap.mjs"
+    "verify:bootstrap": "node scripts/verify-bootstrap.mjs",
+    "verify:rpcs": "node scripts/verify-rpcs.mjs",
+    "verify": "npm run verify:schema && npm run verify:rpcs && npm run verify:bootstrap"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

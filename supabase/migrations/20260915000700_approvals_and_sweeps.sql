@@ -25,6 +25,18 @@ $$;
 revoke all on function random_token() from public, anon, authenticated;
 
 
+-- Which JWT role is calling — 'anon', 'authenticated', 'service_role', or
+-- null when there is no JWT at all (SQL editor, migrations, pg_cron). Reads
+-- both claim shapes PostgREST has used, the way Supabase's own auth.role() does.
+create or replace function jwt_role()
+returns text language sql stable set search_path = '' as $$
+  select coalesce(
+    nullif(current_setting('request.jwt.claim.role', true), ''),
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'
+  )
+$$;
+
+
 -- ---------------------------------------------------------------------------
 -- mint_approval_token
 --
@@ -42,8 +54,9 @@ declare
   v_token text;
   v_ttl   interval := interval '14 days';
 begin
-  if current_setting('request.jwt.claim.role', true) is distinct from 'service_role'
-     and current_user not in ('postgres', 'supabase_admin') then
+  -- Only the service role (the send-email route) or a direct connection with
+  -- no JWT (dashboard, cron) may mint. A signed-in user never can.
+  if public.jwt_role() in ('anon', 'authenticated') then
     raise exception 'Not permitted.' using errcode = 'insufficient_privilege';
   end if;
 
@@ -72,6 +85,13 @@ create or replace function apply_decision(
 ) returns jsonb language plpgsql security definer set search_path = '' as $$
 declare a record; b record;
 begin
+  -- Belt and braces: EXECUTE is revoked from clients below, but a signed-in
+  -- non-staff caller must fail here too, so a future grant slip cannot let a
+  -- student approve their own request.
+  if public.jwt_role() in ('anon', 'authenticated') and not public.is_staff() then
+    raise exception 'Not permitted.' using errcode = 'insufficient_privilege';
+  end if;
+
   select * into a from public.approvals where booking_id = p_booking_id;
   if not found then raise exception 'No approval request for that booking.'; end if;
 
@@ -110,6 +130,10 @@ begin
   return jsonb_build_object('booking_id', p_booking_id, 'decision', p_decision,
                             'already_decided', false);
 end $$;
+
+-- Internal. Without this a signed-in student could call it directly via RPC
+-- and approve their own request, bypassing the token entirely.
+revoke all on function apply_decision(uuid, text, uuid, text) from public, anon, authenticated;
 
 
 -- ---------------------------------------------------------------------------
@@ -237,7 +261,10 @@ returns jsonb language sql security definer set search_path = '' as $$
   )
 $$;
 
-revoke all on function run_sweeps() from public, anon, authenticated;
+revoke all on function run_sweeps()                  from public, anon, authenticated;
+revoke all on function release_no_shows()            from public, anon, authenticated;
+revoke all on function expire_pending_approvals()    from public, anon, authenticated;
+revoke all on function complete_finished_bookings()  from public, anon, authenticated;
 
 
 -- ---------------------------------------------------------------------------

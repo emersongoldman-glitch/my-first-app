@@ -91,7 +91,22 @@ export function parseRange(during: string): { start: Date; end: Date } {
   // `["2026-09-16 15:00:00+00","2026-09-16 16:00:00+00")`
   const m = during.match(/^[\[(]"?([^",]+)"?,"?([^")\]]+)"?[\])]$/)
   if (!m) throw new Error(`Unparseable range: ${during}`)
-  return { start: new Date(m[1].replace(' ', 'T')), end: new Date(m[2].replace(' ', 'T')) }
+  return { start: pgTimestampToDate(m[1]), end: pgTimestampToDate(m[2]) }
+}
+
+/**
+ * Postgres prints timestamptz as `2026-09-16 15:00:00+00` (or `+05:30`,
+ * `-05`, with optional fractional seconds). JavaScript's Date only accepts
+ * ISO 8601: a `T` separator and a `±HH:MM` offset — `+00` alone is an
+ * Invalid Date in V8, which then throws from Intl formatting. Normalise.
+ */
+export function pgTimestampToDate(text: string): Date {
+  let s = text.trim().replace(' ', 'T')
+  // `+00` → `+00:00`, `-0530` → `-05:30`; leave `Z` and `+05:30` alone.
+  s = s.replace(/([+-]\d{2})(?::?(\d{2}))?$/, (_, hh: string, mm?: string) => `${hh}:${mm ?? '00'}`)
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) throw new Error(`Unparseable timestamp: ${text}`)
+  return d
 }
 
 export function displayName(p?: { display_name: string | null; full_name: string } | null) {

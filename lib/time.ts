@@ -14,11 +14,20 @@ const dayFmt = new Intl.DateTimeFormat('en-US', {
   timeZone: CAMPUS_TZ,
 })
 
+const valid = (d: Date) => !Number.isNaN(d.getTime())
+
+/**
+ * Formatters never throw. Intl.DateTimeFormat raises RangeError on an Invalid
+ * Date, and a single bad row must not take down a whole page — it took down
+ * /people once. Render a dash instead.
+ */
 export function fmtTime(d: Date): string {
+  if (!valid(d)) return '—'
   return timeFmt.format(d).replace(' ', ' ') // narrow no-break space before AM/PM
 }
 
 export function fmtDay(d: Date): string {
+  if (!valid(d)) return '—'
   return dayFmt.format(d)
 }
 
@@ -50,6 +59,7 @@ export function relative(target: Date, now: Date): string {
 }
 
 export function sameCampusDay(a: Date, b: Date): boolean {
+  if (!valid(a) || !valid(b)) return false
   return dayFmt.format(a) === dayFmt.format(b)
 }
 

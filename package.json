@@ -11,7 +11,8 @@
     "build:bootstrap": "bash scripts/build-bootstrap.sh",
     "verify:bootstrap": "node scripts/verify-bootstrap.mjs",
     "verify:rpcs": "node scripts/verify-rpcs.mjs",
-    "verify": "npm run verify:schema && npm run verify:rpcs && npm run verify:bootstrap"
+    "verify": "npm run verify:lib && npm run verify:schema && npm run verify:rpcs && npm run verify:bootstrap",
+    "verify:lib": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/verify-lib.mts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

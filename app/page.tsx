@@ -68,6 +68,11 @@ export default async function Home() {
           <Link href="/bookings" className="text-sm font-bold text-navy hover:underline dark:text-cyan">
             My bookings →
           </Link>
+          {me.role !== 'student' && (
+            <Link href="/admin/rooms" className="text-sm font-bold text-navy hover:underline dark:text-cyan">
+              Manage rooms →
+            </Link>
+          )}
         </div>
       </header>
 

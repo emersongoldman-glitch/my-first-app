@@ -244,6 +244,47 @@ try {
   } catch { adminPromoteOk = false }
   check('admin can change another user\'s role', adminPromoteOk)
   await asUser(null)
+
+  // --- room management (staff-managed rooms & zones) -----------------------
+  // Observed as the real `authenticated` role so RLS, not superuser, decides.
+  console.log('\nRoom management:')
+  await client.query(`update profiles set role = 'student' where id = $1`, [studentId])  // undo the promotion above
+  await client.query(`set role authenticated`)
+
+  await asUser(studentId)
+  const stuRename = await client.query(`update rooms set name = 'Hacked Pod' where slug = 'hallway-3' returning id`)
+  check('student cannot rename a room (RLS hides the row)', stuRename.rowCount === 0, `${stuRename.rowCount} rows`)
+  let stuZoneBlocked = false
+  try { await client.query(`insert into zones (name) values ('Student Zone')`) } catch (e) { stuZoneBlocked = e.code === '42501' }
+  check('student cannot add a zone', stuZoneBlocked)
+
+  await asUser(guideId)  // staff
+  const staffRename = await client.query(`update rooms set name = 'Hallway Booth 3' where slug = 'hallway-3' returning name`)
+  check('staff can rename a room', staffRename.rows[0]?.name === 'Hallway Booth 3')
+  const staffZone = await client.query(`insert into zones (name, floor) values ('Library', 1) returning id, sort`)
+  check('staff can add a zone; sort defaults past existing zones', staffZone.rowCount === 1 && staffZone.rows[0].sort > 60, `sort ${staffZone.rows[0]?.sort}`)
+  const moved = await client.query(`update rooms set zone_id = $1 where slug = 'pomodoro' returning zone_id`, [staffZone.rows[0].id])
+  check('staff can move a room to another zone', moved.rows[0]?.zone_id === staffZone.rows[0].id)
+  const added = await client.query(
+    `insert into rooms (slug, name, zone_id, capacity, sort) values ('library-1', 'Library Booth', $1, 2, next_room_sort($1)) returning id`,
+    [staffZone.rows[0].id])
+  check('staff can add a room', added.rowCount === 1)
+
+  let fkBlocked = false
+  try { await client.query(`delete from rooms where slug = 'hallway-3'`) } catch (e) { fkBlocked = e.code === '23503' }
+  check('deleting a room with bookings is blocked (retire instead)', fkBlocked)
+  const retired = await client.query(`update rooms set bookable = false where slug = 'hallway-3' returning bookable`)
+  check('…but it can be retired', retired.rows[0]?.bookable === false)
+  const del = await client.query(`delete from rooms where slug = 'library-1' returning id`)
+  check('a never-booked room can be deleted', del.rowCount === 1)
+  let zoneFk = false
+  try { await client.query(`delete from zones where id = $1`, [staffZone.rows[0].id]) } catch (e) { zoneFk = e.code === '23503' }
+  check('deleting a zone that still has rooms is blocked', zoneFk)
+
+  await client.query(`reset role`)
+  await asUser(null)
+  // Restore fixtures other checks may rely on.
+  await client.query(`update rooms set name = 'Hallway Pod 3', bookable = true where slug = 'hallway-3'`)
 } catch (err) {
   console.error('\nFATAL:', err.message)
   failures.push(`fatal: ${err.message}`)

@@ -28,3 +28,12 @@ do $$ begin
     create role service_role nologin bypassrls;
   end if;
 end $$;
+
+-- Supabase grants table access to these roles and relies on RLS to restrict
+-- it. Mirror that, or every "student cannot…" test passes for the wrong
+-- reason (no GRANT) and every "guide can…" test fails for the wrong reason.
+-- Default privileges apply to tables the migrations create after this point.
+grant usage on schema public to anon, authenticated, service_role;
+alter default privileges in schema public grant all on tables    to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+alter default privileges in schema public grant all on functions to anon, authenticated, service_role;

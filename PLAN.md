@@ -287,9 +287,10 @@ His **display name is Clay** everywhere a student sees it: students search for t
 person they know, not the mailbox.
 
 **Matching roster names to real accounts.** Students arrive via Google sign-in with a full
-name and an email; the roster has first names only. Matching is done on first name, with
-a few genuine ambiguities — **Stella C vs. Stella G**, and **Estella vs. Stella**, which a
-naive prefix match will confuse. So:
+name and an email; the roster has first names only. Matching is done on first name, and
+**8 of the 55 are genuinely ambiguous**: Stella C / Stella G / Estella are mutually
+confusable, as are Ali / Allegra and Eva / Evan, and Austin L's last initial implies a
+second Austin. So:
 
 - Exact first-name match on a single candidate → link automatically.
 - Anything ambiguous or unmatched → an admin **Link students** screen, one dropdown per

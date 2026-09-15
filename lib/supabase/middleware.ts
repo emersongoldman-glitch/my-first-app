@@ -6,6 +6,16 @@ const PUBLIC_PATHS = ['/login', '/auth']
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
+  // Without Supabase credentials there is no session to refresh, and calling
+  // out anyway fails with a network error that looks nothing like the actual
+  // problem. Pass through instead; the pages say what is missing.
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  ) {
+    return supabaseResponse
+  }
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

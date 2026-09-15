@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import Image from 'next/image'
 import SignOutButton from './sign-out-button'
 
 type Room = {
@@ -47,11 +48,27 @@ export default async function Home() {
     <main className="mx-auto max-w-2xl px-6 py-10">
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Campus Rooms</h1>
-          <p className="mt-1 text-neutral-600 dark:text-neutral-400">
+          <Image
+            src="/brand/wolf-lockup-navy.svg"
+            alt="Alpha High School"
+            width={150}
+            height={72}
+            priority
+            className="mb-4 h-auto w-[150px] dark:hidden"
+          />
+          <Image
+            src="/brand/wolf-lockup-white.svg"
+            alt="Alpha High School"
+            width={150}
+            height={72}
+            priority
+            className="mb-4 hidden h-auto w-[150px] dark:block"
+          />
+          <h1 className="text-2xl font-bold tracking-tight">Campus Rooms</h1>
+          <p className="mt-1 text-muted">
             Signed in as {name}
             {profile?.role !== 'student' && (
-              <span className="ml-2 rounded-full bg-neutral-200 px-2 py-0.5 text-xs font-medium uppercase tracking-wide dark:bg-neutral-800">
+              <span className="ml-2 rounded-full bg-cyan/15 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-navy dark:text-cyan">
                 {profile?.role}
               </span>
             )}
@@ -69,19 +86,19 @@ export default async function Home() {
       <div className="space-y-8">
         {zones.map(([zone, zoneRooms]) => (
           <section key={zone}>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-500">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-navy dark:text-cyan">
               {zone}
               {zoneRooms[0].zones?.floor === 2 && (
-                <span className="ml-2 font-normal normal-case text-neutral-400">
+                <span className="ml-2 font-normal normal-case tracking-normal text-muted">
                   2nd floor
                 </span>
               )}
             </h2>
-            <ul className="divide-y divide-neutral-200 overflow-hidden rounded-xl border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
+            <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
               {zoneRooms.map((room) => (
                 <li key={room.id} className="flex items-center justify-between px-4 py-3">
                   <span className="font-medium">{room.name}</span>
-                  <span className="text-sm text-neutral-500">
+                  <span className="text-sm text-muted">
                     {room.capacity} {room.capacity === 1 ? 'seat' : 'seats'}
                   </span>
                 </li>
@@ -91,7 +108,7 @@ export default async function Home() {
         ))}
       </div>
 
-      <p className="mt-10 text-sm text-neutral-500">
+      <p className="mt-10 text-sm text-muted">
         Phase 0 — auth and rooms only. Booking lands in Phase 1 (see PLAN.md).
       </p>
     </main>

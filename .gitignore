@@ -34,3 +34,7 @@ next-env.d.ts
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Skill package dropped in for reference — the skill itself is installed in
+# Claude Code, so this 660KB zip does not need to be in the repo. Safe to delete.
+*.skill

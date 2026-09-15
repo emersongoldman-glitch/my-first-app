@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "verify:schema": "node scripts/verify-schema.mjs"
+    "verify:schema": "node scripts/verify-schema.mjs",
+    "build:bootstrap": "bash scripts/build-bootstrap.sh",
+    "verify:bootstrap": "node scripts/verify-bootstrap.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

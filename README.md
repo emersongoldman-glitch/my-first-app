@@ -21,6 +21,13 @@ pasted into the SQL Editor once.
 2. **Un-checked-in bookings auto-release 5 minutes after they start** (§6.4). A room that
    looks taken but sits empty is worse than having no system at all.
 
+## Live
+
+**https://campus-rooms-eight.vercel.app** — production, on Vercel (project
+`alpha-high-school-austin/campus-rooms`). Every `git push` to `main` does not yet auto-deploy;
+run `npx vercel --prod` to ship. Env vars live on Vercel, not in the repo.
+Note: `campus-rooms.vercel.app` (no suffix) is someone else's project.
+
 ## Running it
 
 Node lives at `~/.local/node` (no admin rights needed) and is on your PATH via `~/.zshrc`.

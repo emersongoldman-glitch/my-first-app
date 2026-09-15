@@ -1,12 +1,31 @@
 -- ============================================================================
--- Campus Rooms — bootstrap for an EMPTY Supabase project.
+-- Campus Rooms — RESET and bootstrap.
 --
--- Paste into the SQL Editor and Run. Every migration plus the seed, in order.
--- If you get "relation ... already exists", the database is not empty — use
--- reset_bootstrap.sql instead.
+-- ⚠️  DESTRUCTIVE. The first statement drops the entire `public` schema and
+-- everything in it: every table, every row, every function and policy. It also
+-- removes this app's triggers on auth.users, which depend on those functions.
+--
+-- Use this ONLY on a project that has no data you care about — typically a
+-- fresh project where an earlier run failed partway and left the schema half
+-- built. It does NOT delete user accounts in auth.users; those survive, and
+-- their profiles rows are rebuilt on next sign-in.
 --
 -- GENERATED FILE — do not edit. Regenerate: npm run build:bootstrap
 -- ============================================================================
+
+drop schema if exists public cascade;
+create schema public;
+
+-- Restore the grants Supabase sets up on a new project. These look permissive;
+-- row-level security is what actually restricts access, and every table below
+-- enables it.
+grant usage on schema public to postgres, anon, authenticated, service_role;
+grant all on all tables    in schema public to postgres, anon, authenticated, service_role;
+grant all on all routines  in schema public to postgres, anon, authenticated, service_role;
+grant all on all sequences in schema public to postgres, anon, authenticated, service_role;
+alter default privileges in schema public grant all on tables    to postgres, anon, authenticated, service_role;
+alter default privileges in schema public grant all on routines  to postgres, anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;
 
 -- ==== 20260915000100_foundation.sql ============================================
 

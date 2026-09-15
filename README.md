@@ -3,8 +3,9 @@
 Pod and conference room reservations for Alpha High School — plus a live board showing
 who's where, so students can actually find their guides and each other.
 
-**Status:** Phase 0 complete. Auth, schema, and seed data are done and verified; nothing
-is bookable yet.
+**Status:** Phase 1 code complete — booking, check-in, approvals, sweeps, live board.
+A project set up before Phase 1 needs [`supabase/upgrades/2026-09-15_phase1.sql`](supabase/upgrades/2026-09-15_phase1.sql)
+pasted into the SQL Editor once.
 
 ## Start here
 
@@ -34,7 +35,10 @@ npm run dev
 |---|---|
 | `npm run dev` | Dev server at http://localhost:3000 |
 | `npm run build` | Production build |
-| `npm run verify:schema` | Runs every migration + the seed against a throwaway Postgres and asserts 22 behaviours. **No Docker needed.** |
+| `npm run verify` | Everything below, in sequence. |
+| `npm run verify:schema` | Every migration + seed against a throwaway Postgres; 26 checks on constraints, auth, roster, RLS. **No Docker needed.** |
+| `npm run verify:rpcs` | 53 checks on the booking RPCs: the 2-hour gate, quotas, check-in window, tokens, overrides, sweeps, grant boundaries. |
+| `npm run verify:bootstrap` | The pasteable setup files apply cleanly, and the reset recovers a half-built database. |
 
 `npm run verify:schema` is the one to run after touching any SQL. It proves, among other
 things, that the database itself rejects a double-booking — the guarantee the whole app

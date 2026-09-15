@@ -49,11 +49,28 @@ export async function updateSession(request: NextRequest) {
   // here makes sessions randomly fail to refresh and users get logged out.
   const { data: { user } } = await supabase.auth.getUser()
 
-  const isPublic = PUBLIC_PATHS.some((p) => request.nextUrl.pathname.startsWith(p))
+  const path = request.nextUrl.pathname
+  const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p))
   if (!user && !isPublic) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
+  }
+
+  // First visit: everyone confirms guide-or-student once (PLAN.md D11).
+  // The claim itself is verified server-side in confirm_role; this only
+  // routes unconfirmed people to the screen.
+  if (user && !isPublic && !path.startsWith('/welcome') && !path.startsWith('/api')) {
+    const { data: me } = await supabase
+      .from('profiles')
+      .select('role_confirmed')
+      .eq('id', user.id)
+      .maybeSingle()
+    if (me && me.role_confirmed === false) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/welcome'
+      return NextResponse.redirect(url)
+    }
   }
 
   return supabaseResponse

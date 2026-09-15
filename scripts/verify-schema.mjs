@@ -285,6 +285,75 @@ try {
   await asUser(null)
   // Restore fixtures other checks may rely on.
   await client.query(`update rooms set name = 'Hallway Pod 3', bookable = true where slug = 'hallway-3'`)
+
+  // --- role confirmation at first sign-in (D11) ---------------------------
+  console.log('\nRole confirmation:')
+  const backfilled = await client.query(`select role_confirmed from profiles where id = $1`, [guideId])  // an admin
+  check('existing staff are backfilled as confirmed', backfilled.rows[0]?.role_confirmed === true)
+  // A brand-new sign-in, untouched by earlier sections.
+  const freshId = (await client.query(
+    `insert into auth.users (email, raw_user_meta_data) values ('benny.x@alpha.school', '{"full_name":"Benjamin Ortiz"}'::jsonb) returning id`)).rows[0].id
+  const fresh = await client.query(`select role, role_confirmed from profiles where id = $1`, [freshId])
+  check('a new sign-in starts unconfirmed as a student', fresh.rows[0]?.role === 'student' && fresh.rows[0]?.role_confirmed === false)
+  const seeded = await client.query(`select count(*)::int n from staff_allowlist`)
+  check('guide allowlist seeded from the known guides (5) + existing staff', seeded.rows[0].n >= 5, `${seeded.rows[0].n}`)
+
+  await client.query(`set role authenticated`)
+  await asUser(freshId)
+  let notListed = null
+  try { await client.query(`select confirm_role('guide', 'benny.x@alpha.school')`) } catch (e) { notListed = e }
+  check('student not on the list cannot become a guide', notListed?.code === '42501' && /guide list/.test(notListed.message), notListed?.message)
+  let stillStudent = await client.query(`select role, role_confirmed from profiles where id = $1`, [freshId])
+  check('…and is still an unconfirmed student', stillStudent.rows[0].role === 'student' && stillStudent.rows[0].role_confirmed === false)
+
+  const asStudent = (await client.query(`select confirm_role('student') r`)).rows[0].r
+  stillStudent = await client.query(`select role, role_confirmed from profiles where id = $1`, [freshId])
+  check('confirming as student marks the profile confirmed', asStudent.role === 'student' && stillStudent.rows[0].role_confirmed === true)
+
+  // Promotion by an admin counts as confirmation and lands on the allowlist;
+  // demotion must leave the allowlist, or they could re-promote themselves.
+  await client.query(`reset role`)
+  await asUser(guideId)  // admin
+  await client.query(`update profiles set role = 'guide' where id = $1`, [freshId])
+  const promoted = await client.query(`select role_confirmed from profiles where id = $1`, [freshId])
+  const onList = await client.query(`select count(*)::int n from staff_allowlist where email = 'benny.x@alpha.school'`)
+  check('admin promotion → confirmed and on the allowlist', promoted.rows[0].role_confirmed === true && onList.rows[0].n === 1)
+  await client.query(`update profiles set role = 'student' where id = $1`, [freshId])
+  const offList = await client.query(`select count(*)::int n from staff_allowlist where email = 'benny.x@alpha.school'`)
+  check('admin demotion → removed from the allowlist', offList.rows[0].n === 0)
+  await client.query(`set role authenticated`)
+  await asUser(freshId)
+  let rePromote = null
+  try { await client.query(`select confirm_role('guide', 'benny.x@alpha.school')`) } catch (e) { rePromote = e }
+  check('a demoted guide cannot re-promote themselves via confirm_role', rePromote?.code === '42501', rePromote?.message ?? 'it succeeded')
+
+  // Put a real guide on the list and let them confirm.
+  await client.query(`reset role`)
+  await asUser(null)
+  const kentId = (await client.query(
+    `insert into auth.users (email, raw_user_meta_data) values ('kent.auslander@alpha.school', '{"full_name":"Kent Auslander"}'::jsonb) returning id`)).rows[0].id
+  await client.query(`set role authenticated`)
+  await asUser(kentId)
+  let mismatch = null
+  try { await client.query(`select confirm_role('guide', 'someone.else@alpha.school')`) } catch (e) { mismatch = e }
+  check('guide claim with a different email than the account is refused', /doesn't match/.test(mismatch?.message ?? ''), mismatch?.message)
+  const asGuide = (await client.query(`select confirm_role('guide', 'Kent.Auslander@alpha.school') r`)).rows[0].r
+  const kentRow = await client.query(`select role, role_confirmed from profiles where id = $1`, [kentId])
+  check('listed guide confirms (case-insensitive) → role guide', asGuide.role === 'guide' && kentRow.rows[0].role === 'guide' && kentRow.rows[0].role_confirmed === true)
+
+  await asUser(guideId)  // the admin
+  const adminPick = (await client.query(`select confirm_role('student') r`)).rows[0].r
+  check('an admin tapping "student" stays admin', adminPick.role === 'admin')
+  const canAdd = await client.query(`insert into staff_allowlist (email, added_by) values ('new.guide@alpha.school', $1) returning email`, [guideId])
+  check('staff can add to the guide list', canAdd.rowCount === 1)
+  await asUser(studentId)
+  const stuList = await client.query(`select count(*)::int n from staff_allowlist`)
+  check('students cannot see the guide list', stuList.rows[0].n === 0)
+  let stuAdd = false
+  try { await client.query(`insert into staff_allowlist (email) values ('me@alpha.school')`) } catch (e) { stuAdd = e.code === '42501' }
+  check('students cannot add to the guide list', stuAdd)
+  await client.query(`reset role`)
+  await asUser(null)
 } catch (err) {
   console.error('\nFATAL:', err.message)
   failures.push(`fatal: ${err.message}`)

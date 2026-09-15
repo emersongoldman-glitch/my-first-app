@@ -104,6 +104,11 @@ update profiles p
  where lower(p.email) = lower(g.email)
    and p.role = 'student';
 
+-- They may confirm themselves as guides at first sign-in (D11).
+insert into staff_allowlist (email)
+select lower(email) from _guides
+on conflict (email) do nothing;
+
 
 -- ---------------------------------------------------------------------------
 -- The roster: 55 students, 68 pairings.

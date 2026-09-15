@@ -6,7 +6,7 @@ import {
   ACTIVE_STATUSES, cancelBooking, checkIn, createBooking, displayName,
   type Booking, type GuideMru, type Profile, type Room,
 } from '@/lib/bookings'
-import { fitsQuick, groupByZone, liveStatus, withTimes, type RoomLive } from '@/lib/board'
+import { fitsQuick, groupByZone, liveStatus, withTimes, type RoomLive, type Timed } from '@/lib/board'
 import { addMinutes, fmtTime, relative } from '@/lib/time'
 import BookingSheet from './booking-sheet'
 
@@ -104,6 +104,7 @@ export default function Board({ rooms, initialBookings, profile, guides }: Props
                 <RoomRow
                   key={live.room.id}
                   live={live}
+                  roomBookings={timed.filter((b) => b.room_id === live.room.id)}
                   now={now}
                   me={profile.id}
                   isStaff={profile.role !== 'student'}
@@ -142,6 +143,7 @@ export default function Board({ rooms, initialBookings, profile, guides }: Props
 
 type RowProps = {
   live: RoomLive
+  roomBookings: Timed[]
   now: Date
   me: string
   isStaff: boolean
@@ -152,8 +154,9 @@ type RowProps = {
   onCancel: (id: string) => void
 }
 
-function RoomRow({ live, now, me, isStaff, busy, onQuick, onMore, onCheckIn, onCancel }: RowProps) {
+function RoomRow({ live, roomBookings, now, me, isStaff, busy, onQuick, onMore, onCheckIn, onCancel }: RowProps) {
   const { room, state, current, next } = live
+  const [open, setOpen] = useState(false)
   const mine = current?.user_id === me
   const canCheckIn =
     current?.status === 'reserved' &&
@@ -162,13 +165,21 @@ function RoomRow({ live, now, me, isStaff, busy, onQuick, onMore, onCheckIn, onC
     now.getTime() <= current.start.getTime() + 5 * 60000
 
   return (
-    <li className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <li className="px-4 py-3">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-2 text-left"
+          aria-expanded={open}
+          title="Show the next 2 hours"
+        >
           <Dot state={state} />
           <span className="font-bold">{room.name}</span>
           <span className="text-xs text-muted">{room.capacity === 1 ? '1 seat' : `${room.capacity} seats`}</span>
-        </div>
+          <span className={`text-xs text-muted transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden>▾</span>
+        </button>
         <p className="mt-0.5 text-sm text-muted">
           {state === 'open' && 'Open'}
           {state === 'free_until' && next && <>Open until <b className="text-foreground">{fmtTime(next.start)}</b> ({relative(next.start, now)})</>}
@@ -214,7 +225,75 @@ function RoomRow({ live, now, me, isStaff, busy, onQuick, onMore, onCheckIn, onC
           </button>
         )}
       </div>
+    </div>
+    {open && <NextTwoHours bookings={roomBookings} now={now} me={me} />}
     </li>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Who has this room for the next two hours: a 15-minute strip plus the list.
+// Pure view over bookings the board already holds.
+// ---------------------------------------------------------------------------
+const WINDOW_MIN = 120
+const SLOT_MIN = 15
+
+function NextTwoHours({ bookings, now, me }: { bookings: Timed[]; now: Date; me: string }) {
+  const start = new Date(Math.floor(now.getTime() / 60000) * 60000)
+  const end = addMinutes(start, WINDOW_MIN)
+  const inWindow = bookings
+    .filter((b) => b.end > start && b.start < end)
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
+
+  // Strip cells: colour by whatever booking covers the cell's midpoint.
+  const cells = Array.from({ length: WINDOW_MIN / SLOT_MIN }, (_, i) => {
+    const mid = addMinutes(start, i * SLOT_MIN + SLOT_MIN / 2)
+    const b = inWindow.find((x) => x.start <= mid && mid < x.end)
+    return b ? (b.status === 'pending_approval' ? 'held' : 'booked') : 'open'
+  })
+
+  // Segments: bookings interleaved with the open gaps between them.
+  const segments: { from: Date; to: Date; b?: Timed }[] = []
+  let cursor = start
+  for (const b of inWindow) {
+    const from = b.start > cursor ? b.start : cursor
+    if (from > cursor) segments.push({ from: cursor, to: from })
+    const to = b.end < end ? b.end : end
+    segments.push({ from, to, b })
+    cursor = to
+  }
+  if (cursor < end) segments.push({ from: cursor, to: end })
+
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-background p-3">
+      <div className="mb-2 flex items-center justify-between text-xs text-muted">
+        <span>Next 2 hours</span>
+        <span>{fmtTime(start)} – {fmtTime(end)}</span>
+      </div>
+      <div className="flex gap-0.5" aria-hidden>
+        {cells.map((c, i) => (
+          <span key={i} className={`h-2 flex-1 rounded-sm ${c === 'booked' ? 'bg-amber-500' : c === 'held' ? 'bg-neutral-400' : 'bg-green-500/60'}`} />
+        ))}
+      </div>
+      <ul className="mt-3 space-y-1.5 text-sm">
+        {segments.map((sgm, i) => (
+          <li key={i} className="flex items-baseline gap-3">
+            <span className="w-[8.5rem] shrink-0 tabular-nums text-muted">{fmtTime(sgm.from)} – {fmtTime(sgm.to)}</span>
+            {sgm.b ? (
+              <span>
+                <span className="font-bold">{sgm.b.user_id === me ? 'You' : displayName(sgm.b.user)}</span>
+                <span className="text-muted">
+                  {' · '}
+                  {sgm.b.status === 'checked_in' ? 'in use' : sgm.b.status === 'pending_approval' ? 'held, awaiting approval' : 'reserved'}
+                </span>
+              </span>
+            ) : (
+              <span className="text-green-700 dark:text-green-400">Open</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

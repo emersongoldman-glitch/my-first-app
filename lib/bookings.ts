@@ -53,6 +53,8 @@ export type Profile = {
   full_name: string
   display_name: string | null
   role: 'student' | 'guide' | 'admin'
+  /** False until they pick guide-or-student once at first sign-in (D11). */
+  role_confirmed?: boolean
 }
 
 /** Self-reported guide location (PLAN.md §5.4, §9). Never inferred. */

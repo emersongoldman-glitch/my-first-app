@@ -40,7 +40,7 @@ directory is something people open every day.
 | Role | Who | Can |
 |---|---|---|
 | `student` | Any `@alpha.school` student | Book, cancel own bookings, check in/out, view board |
-| `guide` | Staff | Everything a student can + set own status/location, book on behalf of a student, override any booking |
+| `guide` | Staff — confirmed at sign-in against `staff_allowlist` (D11) | Everything a student can + set own status/location, book on behalf of a student, override any booking, manage rooms/zones and the guide list |
 | `admin` | You + designated staff | Manage rooms, hours, quotas, blackout windows; view usage reports |
 
 Role is stored on the user profile and assigned by an admin. First run: seed your own
@@ -683,6 +683,7 @@ Settled, with the reasoning, so they don't get reopened mid-build.
 | D7 | Only a **confirmed** (answered) request promotes a guide to a student's default. | 2026-09-15 | A mistyped `@alpha.school` address fails silently — real domain, mail goes nowhere — and would otherwise become sticky. |
 | D8 | **A student can have several guides**, modelled as multiple rows rather than one column. Chloe's 13 are also Clay's. | 2026-09-15 | Found on the first real roster, so it's the normal case. A single `guide_id` column would have needed migrating out within the week. |
 | D10 | **Students may book at most 2 hours ahead.** Staff are exempt so a guide can hold a conference room for a scheduled session. Replaces the 7-day horizon. | 2026-09-15 | Pods are for the next hour, not next Tuesday. A long horizon fills the board with plans that don't happen, which is the same failure as no-shows. Consequence: a >2h approval request must be made within 2h of its start, so the guide has under two hours to answer before it expires. |
+| D11 | **Everyone confirms guide-or-student once at first sign-in; "guide" is a claim checked against `staff_allowlist`.** They must type the email they signed in with, and it must be on the list. Staff maintain the list per campus. | 2026-09-15 | Self-selection alone would let a student grant themselves override and room-management powers. Typing the email is a deliberate confirmation, not a credential — Google already proved who they are. |
 | D9 | **Preferred names are seeded, not opt-in.** `display_name` on `profiles`, pre-filled for guides and for students from their roster name; everyone can change their own. Clay's account is `dustin.hansford@` (legal name); he goes by Clay. | 2026-09-15 | Google returns account names, not used names. A People board showing names students don't recognise defeats the app's whole purpose — and leaving people to find a settings toggle means most never will. |
 
 Question 6 in §11 (can a student re-ask a different guide after a decline) stays open —

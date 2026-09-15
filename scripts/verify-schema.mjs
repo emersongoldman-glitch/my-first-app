@@ -210,6 +210,40 @@ try {
     `select count(*)::int n from pg_policies
       where tablename = 'bookings' and cmd <> 'SELECT'`)
   check('bookings have no direct write policy (RPC-only)', bookingWrite.rows[0].n === 0)
+
+  // --- role guard ----------------------------------------------------------
+  // The 22 checks above all passed while this was broken: nothing tested that
+  // the first admin can actually be created. Now it does.
+  console.log('\nRole guard:')
+  const asUser = (id) => client.query(`select set_config('request.jwt.claim.sub', $1, false)`, [id ?? ''])
+
+  await asUser(null)  // dashboard / SQL editor / service role: no user JWT
+  let bootstrapOk = true
+  try {
+    await client.query(`update profiles set role = 'admin' where id = $1`, [guideId])
+  } catch { bootstrapOk = false }
+  check('first admin can be created from the SQL editor (no JWT)', bootstrapOk)
+
+  await asUser(studentId)  // a signed-in student
+  let selfPromoteBlocked = false
+  try {
+    await client.query(`update profiles set role = 'admin' where id = $1`, [studentId])
+  } catch (e) { selfPromoteBlocked = e.code === '42501' }
+  check('signed-in student cannot promote themselves', selfPromoteBlocked)
+
+  let ownProfileOk = true
+  try {
+    await client.query(`update profiles set display_name = 'Aarya P.' where id = $1`, [studentId])
+  } catch { ownProfileOk = false }
+  check('student can still edit their own display name', ownProfileOk)
+
+  await asUser(guideId)  // the admin we just made
+  let adminPromoteOk = true
+  try {
+    await client.query(`update profiles set role = 'guide' where id = $1`, [studentId])
+  } catch { adminPromoteOk = false }
+  check('admin can change another user\'s role', adminPromoteOk)
+  await asUser(null)
 } catch (err) {
   console.error('\nFATAL:', err.message)
   failures.push(`fatal: ${err.message}`)

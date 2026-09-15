@@ -11,6 +11,30 @@ const CONFIGURED = Boolean(
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [email, setEmail] = useState('')
+  const [sent, setSent] = useState(false)
+
+  // Email sign-in needs no Google Cloud setup. The @alpha.school restriction
+  // still holds either way — it is a trigger on auth.users, not an OAuth hint.
+  async function sendMagicLink(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+
+    if (!email.trim().toLowerCase().endsWith('@alpha.school')) {
+      setError('Use your @alpha.school email address.')
+      return
+    }
+
+    setLoading(true)
+    const supabase = createClient()
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+    })
+    setLoading(false)
+    if (error) setError(error.message)
+    else setSent(true)
+  }
 
   async function signIn() {
     setLoading(true)
@@ -61,6 +85,40 @@ export default function LoginPage() {
           </svg>
           {loading ? 'Redirecting…' : 'Sign in with Google'}
         </button>
+
+        <div className="my-6 flex items-center gap-3 text-xs font-bold uppercase tracking-wider text-white/40">
+          <span className="h-px flex-1 bg-white/20" />
+          or
+          <span className="h-px flex-1 bg-white/20" />
+        </div>
+
+        {sent ? (
+          <div className="rounded-xl bg-white/10 p-4 text-sm text-white">
+            <p className="font-bold">Check your email</p>
+            <p className="mt-1 text-white/75">
+              We sent a sign-in link to {email}. Open it on this device.
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={sendMagicLink} className="space-y-3">
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@alpha.school"
+              autoComplete="email"
+              className="w-full rounded-xl border border-white/25 bg-white/10 px-4 py-3 text-white placeholder:text-white/40 focus:border-white/60 focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={loading || !CONFIGURED}
+              className="w-full rounded-xl border border-white/30 px-4 py-3 font-bold text-white transition hover:bg-white/10 disabled:opacity-60"
+            >
+              {loading ? 'Sending…' : 'Email me a sign-in link'}
+            </button>
+          </form>
+        )}
 
         {error && (
           <p className="mt-4 rounded-lg bg-black/25 p-3 text-sm text-white">{error}</p>

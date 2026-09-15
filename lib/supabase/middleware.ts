@@ -35,6 +35,16 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
+  // A magic-link or OAuth code that lands anywhere other than the callback —
+  // typically because Supabase fell back to the Site URL — is forwarded to the
+  // callback with its query intact, instead of being redirected to /login and
+  // silently lost.
+  if (request.nextUrl.searchParams.has('code') && request.nextUrl.pathname !== '/auth/callback') {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth/callback'
+    return NextResponse.redirect(url)
+  }
+
   // Do not put logic between createServerClient and getUser(): a stray await
   // here makes sessions randomly fail to refresh and users get logged out.
   const { data: { user } } = await supabase.auth.getUser()

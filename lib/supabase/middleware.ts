@@ -56,7 +56,10 @@ export async function updateSession(request: NextRequest) {
 
   const path = request.nextUrl.pathname
   const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p))
-  if (!user && !isPublic) {
+  // API routes authenticate themselves and answer with JSON; a redirect to
+  // the login page is the wrong shape for a fetch() caller.
+  const isApi = path.startsWith('/api')
+  if (!user && !isPublic && !isApi) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

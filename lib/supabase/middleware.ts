@@ -68,15 +68,22 @@ export async function updateSession(request: NextRequest) {
   // First visit: everyone confirms guide-or-student once (PLAN.md D11).
   // The claim itself is verified server-side in confirm_role; this only
   // routes unconfirmed people to the screen.
-  if (user && !isPublic && !path.startsWith('/welcome') && !path.startsWith('/api')) {
+  if (user && !isPublic && !path.startsWith('/welcome') && !isApi) {
     const { data: me } = await supabase
       .from('profiles')
-      .select('role_confirmed')
+      .select('role, role_confirmed')
       .eq('id', user.id)
       .maybeSingle()
     if (me && me.role_confirmed === false) {
       const url = request.nextUrl.clone()
       url.pathname = '/welcome'
+      return NextResponse.redirect(url)
+    }
+    // Staff-only area. The pages check this too and the database refuses
+    // student writes regardless; this just stops the URL from loading at all.
+    if (path.startsWith('/admin') && (!me || me.role === 'student')) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/'
       return NextResponse.redirect(url)
     }
   }

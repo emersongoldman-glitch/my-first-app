@@ -7,7 +7,7 @@ import {
   type Booking, type Presence, type Profile,
 } from '@/lib/bookings'
 import { fmtTime } from '@/lib/time'
-import { lookupSlackUser, slackDmUrl, slackEnabled } from '@/lib/slack'
+import { lookupSlackUser, searchSlackDirectory, slackDmUrl, slackEnabled, type SlackPerson } from '@/lib/slack'
 
 // ---------------------------------------------------------------------------
 // Shapes as fetched (with the profile join). Exported for the server page.
@@ -29,12 +29,17 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
   const searching = q.trim().length > 0
   const [results, setResults] = useState<Person[]>([])            // only read while `searching`
   const [upcoming, setUpcoming] = useState<PersonBooking[]>([])   // next bookings for search results
+  const [slackHits, setSlackHits] = useState<SlackPerson[]>([])    // whole-workspace matches from Slack
   const [current, setCurrent] = useState(initialCurrent)
   const [presence, setPresence] = useState(initialPresence)
   const [now, setNow] = useState(() => new Date())
   const inputRef = useRef<HTMLInputElement>(null)
   const [toast, setToast] = useState<string | null>(null)
   const say = (m: string) => { setToast(m); setTimeout(() => setToast(null), 4000) }
+
+  function openDm(slackUserId: string) {
+    window.open(slackDmUrl(slackUserId), '_blank', 'noopener')
+  }
 
   // Open the window synchronously (popup blockers allow that on a click), then
   // point it at the DM once the lookup returns.
@@ -83,6 +88,8 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
     const handle = setTimeout(async () => {
       const sb = createClient()
       const like = `%${term.replace(/[%_]/g, '')}%`
+      // Slack directory in parallel: finds people who have never signed in here.
+      const slackPromise = searchSlackDirectory(term).then(setSlackHits)
       const { data: people } = await sb
         .from('profiles')
         .select('id, display_name, full_name, role')
@@ -102,6 +109,7 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
           .overlaps('during', `[${t.toISOString()},${new Date(t.getTime() + 24 * 3600000).toISOString()})`)
         setUpcoming(((next ?? []) as PersonBooking[]))
       } else setUpcoming([])
+      await slackPromise
     }, 200)
     return () => clearTimeout(handle)
   }, [q])
@@ -141,6 +149,10 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
   }, [presence, current])
 
   const list = searching ? results : rightNow
+  const slackIdFor = (profileId: string) => slackHits.find((h) => h.profileId === profileId)?.slackUserId
+  const slackOnly = searching
+    ? slackHits.filter((h) => !h.profileId || !results.some((p) => p.id === h.profileId))
+    : []
 
   return (
     <div className="space-y-6">
@@ -157,9 +169,9 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
 
       <section>
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-navy dark:text-cyan">
-          {searching ? `${results.length} ${results.length === 1 ? 'match' : 'matches'}` : 'Right now'}
+          {searching ? `${results.length + slackOnly.length} ${results.length + slackOnly.length === 1 ? 'match' : 'matches'}` : 'Right now'}
         </h2>
-        {list.length === 0 ? (
+        {list.length === 0 && slackOnly.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted">
             {searching ? 'No one by that name.' : 'Nobody is in a room right now.'}
           </p>
@@ -183,7 +195,7 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
                     {slackEnabled && p.id !== me.id && (
                       <button
                         type="button"
-                        onClick={() => messageOnSlack(p.id, displayName(p))}
+                        onClick={() => { const id = slackIdFor(p.id); id ? openDm(id) : void messageOnSlack(p.id, displayName(p)) }}
                         className="rounded-lg border border-border px-2.5 py-1 text-xs font-bold text-navy hover:bg-background dark:text-cyan"
                         title={`Message ${displayName(p)} on Slack`}
                       >
@@ -195,6 +207,36 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
                 </li>
               )
             })}
+            {slackOnly.map((h) => (
+              <li key={`slack-${h.slackUserId}`} className="flex items-center justify-between gap-4 px-4 py-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  {h.avatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={h.avatar} alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-full" />
+                  ) : (
+                    <span className="h-7 w-7 shrink-0 rounded-full bg-border" aria-hidden />
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate font-bold">
+                      {h.name}
+                      {h.title && <span className="ml-2 font-normal text-muted">{h.title}</span>}
+                    </p>
+                    <p className="truncate text-sm text-muted">On Slack · hasn’t used Campus Rooms yet</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openDm(h.slackUserId)}
+                    className="rounded-lg border border-border px-2.5 py-1 text-xs font-bold text-navy hover:bg-background dark:text-cyan"
+                    title={`Message ${h.name} on Slack`}
+                  >
+                    Slack
+                  </button>
+                  <Pin tone="none" />
+                </div>
+              </li>
+            ))}
           </ul>
         )}
       </section>

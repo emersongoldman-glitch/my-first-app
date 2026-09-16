@@ -327,6 +327,23 @@ try {
   try { await client.query(`select confirm_role('guide', 'benny.x@alpha.school')`) } catch (e) { rePromote = e }
   check('a demoted guide cannot re-promote themselves via confirm_role', rePromote?.code === '42501', rePromote?.message ?? 'it succeeded')
 
+  // --- Slack directory (D12) ----------------------------------------------
+  console.log('\nSlack directory:')
+  await client.query(`reset role`)
+  await asUser(null)
+  await client.query(`insert into slack_directory (slack_user_id, real_name, title) values ('U0TEST1', 'Test Guide', 'Guide')`)  // as the service role would
+  await client.query(`set role authenticated`)
+  await asUser(freshId)
+  const dirRead = await client.query(`select count(*)::int n from slack_directory`)
+  check('signed-in users can read the directory', dirRead.rows[0].n === 1)
+  let dirWrite = false
+  try { await client.query(`insert into slack_directory (slack_user_id, real_name) values ('U0EVIL', 'Spoofed')`) } catch (e) { dirWrite = e.code === '42501' }
+  check('signed-in users cannot write to it (service role only)', dirWrite)
+  let dirDel = await client.query(`delete from slack_directory where slack_user_id = 'U0TEST1' returning slack_user_id`)
+  check('…nor delete from it', dirDel.rowCount === 0)
+  await client.query(`reset role`)
+  await asUser(null)
+
   // Put a real guide on the list and let them confirm.
   await client.query(`reset role`)
   await asUser(null)

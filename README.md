@@ -91,6 +91,9 @@ Slack, and a messaging surface for minors is moderation we don't want to own. To
 4. Redeploy. A **Slack** button appears next to each person on the People page.
 
 Lookups go through `/api/slack/lookup`, server-side only, and are cached on `profiles` for 7 days.
+People search also covers the **whole workspace**: `/api/slack/search` caches `users.list` in
+`slack_directory` (names, titles, avatars — no emails) and refreshes it every ~6 hours, so anyone in
+the campus Slack can be found and messaged even if they have never signed into the app.
 
 ## Live board views
 

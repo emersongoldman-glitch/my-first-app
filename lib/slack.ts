@@ -20,6 +20,29 @@ export function slackDmUrl(slackUserId: string): string {
   return u.toString()
 }
 
+/** A workspace member from the cached Slack directory (see /api/slack/search). */
+export type SlackPerson = {
+  slackUserId: string
+  name: string
+  title: string | null
+  avatar: string | null
+  /** Set when this Slack member has also signed into Campus Rooms. */
+  profileId: string | null
+}
+
+/** Search the whole campus Slack, not only people who have used this app. */
+export async function searchSlackDirectory(q: string): Promise<SlackPerson[]> {
+  if (!slackEnabled || q.trim().length < 2) return []
+  try {
+    const res = await fetch(`/api/slack/search?q=${encodeURIComponent(q.trim())}`)
+    if (!res.ok) return []
+    const body = (await res.json()) as { people?: SlackPerson[] }
+    return body.people ?? []
+  } catch {
+    return []
+  }
+}
+
 export type SlackLookup =
   | { ok: true; slackUserId: string }
   | { ok: false; error: string }

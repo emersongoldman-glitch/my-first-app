@@ -70,6 +70,92 @@ export async function postSlackDm(
   return body.ok ? { ok: true } : { ok: false, error: body.error ?? 'chat.postMessage failed' }
 }
 
+// ---------------------------------------------------------------------------
+// Interactive buttons (block_actions). Slack POSTs to /api/slack/interact when
+// one is pressed, signed with the app's Signing Secret. Available only when
+// SLACK_SIGNING_SECRET is set; otherwise messages fall back to link buttons.
+// ---------------------------------------------------------------------------
+export function interactivityConfigured(): boolean {
+  return Boolean(process.env.SLACK_SIGNING_SECRET)
+}
+
+/**
+ * Verify a request really came from Slack: HMAC-SHA256 of
+ * `v0:<timestamp>:<raw body>` with the Signing Secret, compared in constant
+ * time, and no older than five minutes (replay guard).
+ */
+export async function verifySlackSignature(rawBody: string, headers: Headers): Promise<boolean> {
+  const secret = process.env.SLACK_SIGNING_SECRET
+  const ts = headers.get('x-slack-request-timestamp')
+  const sig = headers.get('x-slack-signature')
+  if (!secret || !ts || !sig) return false
+  if (Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false
+
+  const { createHmac, timingSafeEqual } = await import('node:crypto')
+  const expected = 'v0=' + createHmac('sha256', secret).update(`v0:${ts}:${rawBody}`).digest('hex')
+  const a = Buffer.from(expected), b = Buffer.from(sig)
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+/** Replace the original message after a button press (via response_url). */
+export async function respondToSlack(responseUrl: string, text: string, blocks?: unknown[]): Promise<void> {
+  await fetch(responseUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ replace_original: true, text, ...(blocks ? { blocks } : {}) }),
+  }).catch(() => {})
+}
+
+/** Block Kit: paragraph + interactive Approve/Decline buttons + a fallback link. */
+export function actionBlocks(text: string, token: string, fallbackUrl: string) {
+  return [
+    { type: 'section', text: { type: 'mrkdwn', text } },
+    {
+      type: 'actions',
+      block_id: 'approval',
+      elements: [
+        { type: 'button', action_id: 'approve', value: token, style: 'primary', text: { type: 'plain_text', text: '✅ Approve', emoji: true } },
+        { type: 'button', action_id: 'decline', value: token, style: 'danger', text: { type: 'plain_text', text: '✋ Decline', emoji: true } },
+      ],
+    },
+    { type: 'context', elements: [{ type: 'mrkdwn', text: `Buttons not working? <${fallbackUrl}|Open the request>` }] },
+  ]
+}
+
+/**
+ * Tell the student how their request went. Shared by the button handler and
+ * the confirm-page route so both paths behave the same.
+ */
+export async function notifyStudentDecision(
+  admin: SupabaseClient,
+  bookingId: string,
+  decision: 'approved' | 'declined',
+  reason?: string | null
+): Promise<void> {
+  if (!slackConfigured()) return
+  try {
+    const { data: b } = await admin
+      .from('bookings')
+      .select('user_id, during, room:rooms(name)')
+      .eq('id', bookingId)
+      .single()
+    if (!b) return
+    const studentSlack = await slackIdForProfile(admin, b.user_id)
+    if (!studentSlack) return
+    const { parseRange } = await import('@/lib/bookings')
+    const { fmtRange } = await import('@/lib/time')
+    const { start, end } = parseRange(b.during as string)
+    const room = (b.room as unknown as { name: string } | null)?.name ?? 'your room'
+    const why = reason?.trim() ? ` "${reason.trim()}"` : ''
+    const msg = decision === 'approved'
+      ? `✅ Approved — *${room}* is yours, ${fmtRange(start, end)}. Check in within 5 minutes of the start.`
+      : `✋ Your request for *${room}* (${fmtRange(start, end)}) was declined.${why} You can still book up to an hour without approval.`
+    await postSlackDm(studentSlack, msg.replace(/\*/g, ''), [{ type: 'section', text: { type: 'mrkdwn', text: msg } }])
+  } catch (e) {
+    console.error('student notify failed', e)
+  }
+}
+
 /** Block Kit: a paragraph plus link buttons. */
 export function messageBlocks(text: string, buttons: { label: string; url: string; style?: 'primary' | 'danger' }[]) {
   return [

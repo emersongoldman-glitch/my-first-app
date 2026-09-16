@@ -89,6 +89,11 @@ Slack, and a messaging surface for minors is moderation we don't want to own. To
    - `SUPABASE_SERVICE_ROLE_KEY` = from Supabase → Project Settings → API (**sensitive**; the
      lookup route needs it to cache ids for other people's profiles)
 4. Redeploy. A **Slack** button appears next to each person on the People page.
+5. **Approvals from Slack** — requests over the 1-hour gate DM the guide with Approve / Decline.
+   To make those buttons act in place (no confirm page): Slack app → **Interactivity & Shortcuts**
+   → on, Request URL `https://campus-rooms-eight.vercel.app/api/slack/interact`; then copy the
+   **Signing Secret** from **Basic Information** into Vercel as `SLACK_SIGNING_SECRET`
+   (**sensitive**) and redeploy. Without it the buttons open a one-tap confirm page instead.
 
 Lookups go through `/api/slack/lookup`, server-side only, and are cached on `profiles` for 7 days.
 People search also covers the **whole workspace**: `/api/slack/search` caches `users.list` in

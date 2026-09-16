@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
-import { postSlackDm, slackConfigured, slackIdForProfile } from '@/lib/slack-server'
-import { parseRange } from '@/lib/bookings'
-import { fmtRange } from '@/lib/time'
+import { notifyStudentDecision } from '@/lib/slack-server'
 
 /**
  * POST { token, decision, reason? } → applies a guide's decision.
@@ -32,29 +30,8 @@ export async function POST(req: Request) {
   }
   const result = data as { booking_id: string; decision: string | null; already_decided: boolean; booking_status?: string }
 
-  // Tell the student, best effort.
-  if (slackConfigured() && !result.already_decided) {
-    try {
-      const { data: b } = await admin
-        .from('bookings')
-        .select('user_id, during, room:rooms(name)')
-        .eq('id', result.booking_id)
-        .single()
-      if (b) {
-        const studentSlack = await slackIdForProfile(admin, b.user_id)
-        if (studentSlack) {
-          const { start, end } = parseRange(b.during as string)
-          const room = (b.room as unknown as { name: string } | null)?.name ?? 'your room'
-          const msg = decision === 'approved'
-            ? `✅ Approved — *${room}* is yours, ${fmtRange(start, end)}. Check in within 5 minutes of the start.`
-            : `✋ Your request for *${room}* (${fmtRange(start, end)}) was declined.${reason?.trim() ? ` "${reason.trim()}"` : ''} You can still book up to an hour without approval.`
-          await postSlackDm(studentSlack, msg.replace(/\*/g, ''), [{ type: 'section', text: { type: 'mrkdwn', text: msg } }])
-        }
-      }
-    } catch (e) {
-      console.error('student notify failed', e)
-    }
-  }
+  // Tell the student, best effort (shared with the Slack button handler).
+  if (!result.already_decided) await notifyStudentDecision(admin, result.booking_id, decision, reason)
 
   return NextResponse.json(result)
 }

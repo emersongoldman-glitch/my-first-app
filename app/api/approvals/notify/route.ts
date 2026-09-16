@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
-import { messageBlocks, postSlackDm, slackConfigured, slackIdForEmail, slackIdForProfile } from '@/lib/slack-server'
+import { actionBlocks, interactivityConfigured, messageBlocks, postSlackDm, slackConfigured, slackIdForEmail, slackIdForProfile } from '@/lib/slack-server'
 import { fmtDay, fmtRange } from '@/lib/time'
 import { parseRange } from '@/lib/bookings'
 
@@ -76,10 +76,15 @@ export async function POST(req: Request) {
     (booking.purpose ? `\n_${booking.purpose}_` : '') +
     `\nThat's over the 1-hour limit, so it needs your OK. The room is held until you answer or until it would start.`
 
-  const sent = await postSlackDm(guideSlackId, `${who} wants ${room} for ${when} — approve or decline`, messageBlocks(text, [
-    { label: '✅ Approve', url: approveUrl, style: 'primary' },
-    { label: '✋ Decline', url: declineUrl, style: 'danger' },
-  ]))
+  // With Interactivity configured the buttons act in place (D15); otherwise
+  // they link to the confirm page.
+  const blocks = interactivityConfigured()
+    ? actionBlocks(text, token as string, `${site}/approve/${token}`)
+    : messageBlocks(text, [
+        { label: '✅ Approve', url: approveUrl, style: 'primary' },
+        { label: '✋ Decline', url: declineUrl, style: 'danger' },
+      ])
+  const sent = await postSlackDm(guideSlackId, `${who} wants ${room} for ${when} — approve or decline`, blocks)
 
   await admin.from('approvals').update({ notified_via: sent.ok ? 'slack' : 'none' }).eq('booking_id', bookingId)
   if (!sent.ok) return NextResponse.json({ notified: 'none', error: `Slack refused the message (${sent.error}).` }, { status: 502 })

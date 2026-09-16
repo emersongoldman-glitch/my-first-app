@@ -159,7 +159,7 @@ they can be tuned in week two without a deploy.
 | **Booking horizon** | **2 h ahead** (students); staff exempt | Rooms get booked when needed, not squatted days out. See D10 |
 | Concurrent bookings per student | 2 | One now, one later |
 | Total booked hours/day per student | 4 h | Backstop against hoarding; approved bookings exempt |
-| Campus hours | 8:00–17:00, Mon–Fri | Configurable; no bookings outside |
+| Campus hours | 8:00–17:00, Mon–Fri; **staff from 7:30** | Configurable (`campus_open`, `staff_campus_open`); no bookings outside (D16) |
 | Check-in window | opens 10 min before start | — |
 | **No-show release** | **5 min after start** | **The single most important rule — see §6.4** |
 | Pending-approval expiry | at booking start time | An unanswered request can't hold a room forever |
@@ -688,6 +688,7 @@ Settled, with the reasoning, so they don't get reopened mid-build.
 | D13 | **The map is schematic and data-driven**, not a traced floor plan: zones as areas, rooms as tiles sized by seats. A traced plan can be layered on later if a campus supplies one. | 2026-09-15 | A hand-drawn plan breaks the moment another campus renames or adds rooms (D-rooms management). This one redraws itself from the rooms table. |
 | D14 | **The approval gate is 1 hour, not 2.** One row in `settings`; the RPCs read it at call time. | 2026-09-16 | An hour is a study block. Anything longer is worth a guide glancing at. |
 | D15 | **Approval requests go to the guide as a Slack DM with Approve / Decline buttons.** The buttons open a confirm page; only its POST decides. The student is told the result on Slack too. Email path retired. | 2026-09-16 | Guides live in Slack and answer from their phone. Deciding on GET would let Slack's link-preview fetcher approve requests by itself. Also removes the DNS/email dependency that was blocking Phase 2. |
+| D16 | **Staff may book from 07:30; students from 08:00.** `staff_campus_open` setting, read by the hours check only for staff. | 2026-09-16 | Guides set up rooms before students arrive. Check-in is tied to a booking, so an earlier booking window is what makes an earlier check-in possible. |
 | D9 | **Preferred names are seeded, not opt-in.** `display_name` on `profiles`, pre-filled for guides and for students from their roster name; everyone can change their own. Clay's account is `dustin.hansford@` (legal name); he goes by Clay. | 2026-09-15 | Google returns account names, not used names. A People board showing names students don't recognise defeats the app's whole purpose — and leaving people to find a settings toggle means most never will. |
 
 Question 6 in §11 (can a student re-ask a different guide after a decline) stays open —

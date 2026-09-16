@@ -131,8 +131,23 @@ try {
   await setNow(FAKE_NOW)
 
   // =========================================================================
+  console.log('\ncampus hours — staff open at 07:30, students at 08:00 (D16)')
+  await setNow('2026-09-16T12:00:00Z')  // 07:00 campus time
+  const podcast = await room('upstairs-podcast')
+  const seaterOrHallway4 = () => hallway4
+  await as(kent)
+  // T() is relative to the 10:00 anchor, so 07:30 is T(-2,-30) = -150 min.
+  const dawn = await create(podcast, T(-2, -30), T(-1, -30))  // 07:30–08:30, 60 min
+  check('guide can book from 07:30', dawn.status === 'reserved')
+  await as(aarya)
+  r = await expectErr(() => create(seaterOrHallway4(), T(-2, -30), T(-1, -45)), /between 08:00/)  // 07:30–08:15, 45 min
+  check('student at 07:30 is still refused', r.ok, r.msg)
+  await setNow(FAKE_NOW)
+
+  // =========================================================================
   console.log('\ncreate_booking — 2-hour horizon (D10)')
   const seater = await room('upstairs-4seater')
+  void seater
   await as(oz)
   r = await expectErr(() => create(seater, T(3), T(4)), /up to 2 hours ahead/)
   check('student booking 3h ahead is refused', r.ok, r.msg)

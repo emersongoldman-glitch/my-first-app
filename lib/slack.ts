@@ -43,6 +43,31 @@ export async function searchSlackDirectory(q: string): Promise<SlackPerson[]> {
   }
 }
 
+/** One row from /api/people/search — merged across profiles, Slack, guides, roster. */
+export type PersonHit = {
+  key: string
+  name: string
+  profileId: string | null
+  role: 'student' | 'guide' | 'admin' | null
+  slackUserId: string | null
+  title: string | null
+  avatar: string | null
+  source: 'profile' | 'slack' | 'guide' | 'roster'
+}
+
+/** Search everyone the campus knows about, signed in to the app or not. */
+export async function searchPeople(q: string): Promise<PersonHit[]> {
+  if (q.trim().length < 1) return []
+  try {
+    const res = await fetch(`/api/people/search?q=${encodeURIComponent(q.trim())}`)
+    if (!res.ok) return []
+    const body = (await res.json()) as { people?: PersonHit[] }
+    return body.people ?? []
+  } catch {
+    return []
+  }
+}
+
 export type SlackLookup =
   | { ok: true; slackUserId: string }
   | { ok: false; error: string }

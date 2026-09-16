@@ -7,7 +7,7 @@ import {
   type Booking, type Presence, type Profile,
 } from '@/lib/bookings'
 import { fmtTime } from '@/lib/time'
-import { lookupSlackUser, searchSlackDirectory, slackDmUrl, slackEnabled, type SlackPerson } from '@/lib/slack'
+import { lookupSlackUser, searchPeople, slackDmUrl, slackEnabled, type PersonHit } from '@/lib/slack'
 
 // ---------------------------------------------------------------------------
 // Shapes as fetched (with the profile join). Exported for the server page.
@@ -24,12 +24,13 @@ type Props = {
   initialPresence: PersonPresence[]
 }
 
+type Where = { text: string; tone: 'room' | 'away' | 'none' }
+
 export default function People({ me, rooms, initialCurrent, initialPresence }: Props) {
   const [q, setQ] = useState('')
   const searching = q.trim().length > 0
-  const [results, setResults] = useState<Person[]>([])            // only read while `searching`
-  const [upcoming, setUpcoming] = useState<PersonBooking[]>([])   // next bookings for search results
-  const [slackHits, setSlackHits] = useState<SlackPerson[]>([])    // whole-workspace matches from Slack
+  const [hits, setHits] = useState<PersonHit[]>([])                // unified search results
+  const [upcoming, setUpcoming] = useState<PersonBooking[]>([])   // next bookings for profile hits
   const [current, setCurrent] = useState(initialCurrent)
   const [presence, setPresence] = useState(initialPresence)
   const [now, setNow] = useState(() => new Date())
@@ -82,40 +83,31 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
   }, [refetchLive])
 
   // --- search (debounced) --------------------------------------------------
+  // One server call merges app profiles, the Slack directory, known guides,
+  // and the roster — so "Clay" is found even if he has never opened the app.
   useEffect(() => {
     const term = q.trim()
-    if (!term) return  // nothing to fetch; `searching` is derived from q, so no state to clear
+    if (!term) return  // `searching` is derived from q, so nothing to clear
     const handle = setTimeout(async () => {
-      const sb = createClient()
-      const like = `%${term.replace(/[%_]/g, '')}%`
-      // Slack directory in parallel: finds people who have never signed in here.
-      const slackPromise = searchSlackDirectory(term).then(setSlackHits)
-      const { data: people } = await sb
-        .from('profiles')
-        .select('id, display_name, full_name, role')
-        .eq('visible', true)
-        .or(`display_name.ilike.${like},full_name.ilike.${like}`)
-        .limit(20)
-      const list = (people ?? []) as Person[]
-      list.sort((a, b) => rank(a) - rank(b) || displayName(a).localeCompare(displayName(b)))
-      setResults(list)
-      if (list.length) {
+      const found = await searchPeople(term)
+      setHits(found)
+      const ids = found.map((h) => h.profileId).filter((id): id is string => !!id)
+      if (ids.length) {
         const t = new Date()
-        const { data: next } = await sb
+        const { data: next } = await createClient()
           .from('bookings')
           .select('id, room_id, user_id, during, status')
-          .in('user_id', list.map((p) => p.id))
+          .in('user_id', ids)
           .in('status', [...ACTIVE_STATUSES])
           .overlaps('during', `[${t.toISOString()},${new Date(t.getTime() + 24 * 3600000).toISOString()})`)
-        setUpcoming(((next ?? []) as PersonBooking[]))
+        setUpcoming((next ?? []) as PersonBooking[])
       } else setUpcoming([])
-      await slackPromise
     }, 200)
     return () => clearTimeout(handle)
   }, [q])
 
   // --- where is someone? ---------------------------------------------------
-  function whereIs(personId: string): { text: string; tone: 'room' | 'away' | 'none' } {
+  function whereIs(personId: string): Where {
     const inRoom = current.find((b) => b.user_id === personId && b.status !== 'pending_approval')
     if (inRoom) {
       const { end } = parseRange(inRoom.during)
@@ -140,19 +132,23 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
     return { text: 'Not in a booked space', tone: 'none' }
   }
 
+  function whereIsHit(h: PersonHit): Where {
+    if (h.profileId) return whereIs(h.profileId)
+    if (h.source === 'roster') return { text: 'Not in a booked space · hasn’t signed in to Campus Rooms yet', tone: 'none' }
+    return { text: h.slackUserId ? 'Not in a booked space · message them on Slack' : 'Not in a booked space', tone: 'none' }
+  }
+
   // Default view: everyone who is somewhere right now. Guides first.
-  const rightNow: Person[] = useMemo(() => {
+  const rightNow: PersonHit[] = useMemo(() => {
     const seen = new Map<string, Person>()
     for (const p of presence) if (p.user && p.user.visible !== false && p.status !== 'roaming') seen.set(p.user.id, p.user)
     for (const b of current) if (b.user && b.user.visible !== false && b.status !== 'pending_approval') seen.set(b.user.id, b.user)
-    return [...seen.values()].sort((a, b) => rank(a) - rank(b) || displayName(a).localeCompare(displayName(b)))
+    return [...seen.values()]
+      .sort((a, b) => rank(a.role) - rank(b.role) || displayName(a).localeCompare(displayName(b)))
+      .map((p) => ({ key: `p:${p.id}`, name: displayName(p), profileId: p.id, role: p.role, slackUserId: null, title: null, avatar: null, source: 'profile' as const }))
   }, [presence, current])
 
-  const list = searching ? results : rightNow
-  const slackIdFor = (profileId: string) => slackHits.find((h) => h.profileId === profileId)?.slackUserId
-  const slackOnly = searching
-    ? slackHits.filter((h) => !h.profileId || !results.some((p) => p.id === h.profileId))
-    : []
+  const list = searching ? hits : rightNow
 
   return (
     <div className="space-y-6">
@@ -169,35 +165,48 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
 
       <section>
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-navy dark:text-cyan">
-          {searching ? `${results.length + slackOnly.length} ${results.length + slackOnly.length === 1 ? 'match' : 'matches'}` : 'Right now'}
+          {searching ? `${list.length} ${list.length === 1 ? 'match' : 'matches'}` : 'Right now'}
         </h2>
-        {list.length === 0 && slackOnly.length === 0 ? (
+        {list.length === 0 ? (
           <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted">
-            {searching ? 'No one by that name.' : 'Nobody is in a room right now.'}
+            {searching ? 'No one by that name.' : 'Nobody is in a booked space right now.'}
           </p>
         ) : (
           <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface">
-            {list.map((p) => {
-              const w = whereIs(p.id)
+            {list.map((h) => {
+              const w = whereIsHit(h)
+              const isMe = h.profileId === me.id
+              const canSlack = slackEnabled && !isMe && (h.slackUserId || h.profileId)
               return (
-                <li key={p.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-bold">
-                      {displayName(p)}
-                      {p.id === me.id && <span className="ml-1 font-normal text-muted">(you)</span>}
-                      {p.role !== 'student' && (
-                        <span className="ml-2 rounded-full bg-cyan/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-navy dark:text-cyan">guide</span>
-                      )}
-                    </p>
-                    <p className={`truncate text-sm ${w.tone === 'room' ? 'text-foreground' : 'text-muted'}`}>{w.text}</p>
+                <li key={h.key} className="flex items-center justify-between gap-4 px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    {h.avatar ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={h.avatar} alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-full" />
+                    ) : (
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-border text-xs font-bold text-muted" aria-hidden>
+                        {h.name.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                    <div className="min-w-0">
+                      <p className="truncate font-bold">
+                        {h.name}
+                        {isMe && <span className="ml-1 font-normal text-muted">(you)</span>}
+                        {h.role && h.role !== 'student' && (
+                          <span className="ml-2 rounded-full bg-cyan/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-navy dark:text-cyan">guide</span>
+                        )}
+                        {h.title && h.role === null && <span className="ml-2 font-normal text-muted">{h.title}</span>}
+                      </p>
+                      <p className={`truncate text-sm ${w.tone === 'room' ? 'text-foreground' : 'text-muted'}`}>{w.text}</p>
+                    </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
-                    {slackEnabled && p.id !== me.id && (
+                    {canSlack && (
                       <button
                         type="button"
-                        onClick={() => { const id = slackIdFor(p.id); if (id) openDm(id); else void messageOnSlack(p.id, displayName(p)) }}
+                        onClick={() => { if (h.slackUserId) openDm(h.slackUserId); else if (h.profileId) void messageOnSlack(h.profileId, h.name) }}
                         className="rounded-lg border border-border px-2.5 py-1 text-xs font-bold text-navy hover:bg-background dark:text-cyan"
-                        title={`Message ${displayName(p)} on Slack`}
+                        title={`Message ${h.name} on Slack`}
                       >
                         Slack
                       </button>
@@ -207,36 +216,6 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
                 </li>
               )
             })}
-            {slackOnly.map((h) => (
-              <li key={`slack-${h.slackUserId}`} className="flex items-center justify-between gap-4 px-4 py-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  {h.avatar ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={h.avatar} alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-full" />
-                  ) : (
-                    <span className="h-7 w-7 shrink-0 rounded-full bg-border" aria-hidden />
-                  )}
-                  <div className="min-w-0">
-                    <p className="truncate font-bold">
-                      {h.name}
-                      {h.title && <span className="ml-2 font-normal text-muted">{h.title}</span>}
-                    </p>
-                    <p className="truncate text-sm text-muted">Not in a booked space · message them on Slack</p>
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => openDm(h.slackUserId)}
-                    className="rounded-lg border border-border px-2.5 py-1 text-xs font-bold text-navy hover:bg-background dark:text-cyan"
-                    title={`Message ${h.name} on Slack`}
-                  >
-                    Slack
-                  </button>
-                  <Pin tone="none" />
-                </div>
-              </li>
-            ))}
           </ul>
         )}
       </section>
@@ -252,7 +231,7 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
   )
 }
 
-function rank(p: Person) { return p.role === 'student' ? 1 : 0 }
+function rank(role: Profile['role'] | null) { return role === 'student' || role === null ? 1 : 0 }
 
 function Pin({ tone }: { tone: 'room' | 'away' | 'none' }) {
   const cls = { room: 'bg-green-500', away: 'bg-neutral-400', none: 'bg-border' }[tone]

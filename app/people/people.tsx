@@ -195,7 +195,7 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
                     {slackEnabled && p.id !== me.id && (
                       <button
                         type="button"
-                        onClick={() => { const id = slackIdFor(p.id); id ? openDm(id) : void messageOnSlack(p.id, displayName(p)) }}
+                        onClick={() => { const id = slackIdFor(p.id); if (id) openDm(id); else void messageOnSlack(p.id, displayName(p)) }}
                         className="rounded-lg border border-border px-2.5 py-1 text-xs font-bold text-navy hover:bg-background dark:text-cyan"
                         title={`Message ${displayName(p)} on Slack`}
                       >

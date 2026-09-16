@@ -21,7 +21,7 @@ const pg = new EmbeddedPostgres({
   port: 7000 + Math.floor(Math.random() * 1500), persistent: false,
 })
 
-const EXPECTED = { rooms: 19, zones: 6, students: 55, pairings: 68, guides: 5, settings: 12 }
+const EXPECTED = { rooms: 19, zones: 6, students: 55, pairings: 68, guides: 5, settings: 13 }
 let client
 const results = []
 const check = (name, ok, detail = '') => {

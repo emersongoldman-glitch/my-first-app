@@ -2123,7 +2123,7 @@ commit;
 
 -- ==== verification ================================================
 -- The result grid below is the proof this worked. Expect:
---   rooms 19 | zones 6 | students 55 | pairings 68 | guides 5 | settings 12
+--   rooms 19 | zones 6 | students 55 | pairings 68 | guides 5 | settings 13
 select
   (select count(*) from rooms)                     as rooms,
   (select count(*) from zones)                     as zones,

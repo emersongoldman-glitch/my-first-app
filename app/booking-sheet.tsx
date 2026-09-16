@@ -6,10 +6,10 @@ import { createBooking, checkIn, type GuideMru, type Profile, type Room } from '
 import type { RoomLive } from '@/lib/board'
 import { addMinutes, fmtDuration, fmtRange, fmtTime, nextSlot } from '@/lib/time'
 
-const SELF_SERVE_MAX = 120 // minutes; mirrors settings.max_self_serve_minutes
+const SELF_SERVE_MAX = 60  // minutes; mirrors settings.max_self_serve_minutes (D14)
 const HORIZON_MIN = 120    // students book at most this far ahead (PLAN.md D10); staff exempt
-const QUICK = [15, 30, 45, 60, 90, 120]
-const LONG = [150, 180, 240, 300, 360, 420, 480]
+const QUICK = [15, 30, 45, 60]
+const LONG = [75, 90, 105, 120, 150, 180, 240, 300, 360, 420, 480]
 const STARTS: [string, number][] = [['Now', 0], ['+30 min', 30], ['+1 h', 60], ['+2 h', 120]]
 
 type Props = {
@@ -31,7 +31,7 @@ export default function BookingSheet({ live, profile, guides, onClose, onBooked 
   const [guideEmail, setGuideEmail] = useState(guides[0]?.guide_email ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<null | { pending: boolean; end: Date; checkedIn: boolean }>(null)
+  const [done, setDone] = useState<null | { pending: boolean; end: Date; checkedIn: boolean; notified: 'slack' | 'none'; note?: string }>(null)
 
   const end = useMemo(() => addMinutes(start, minutes), [start, minutes])
   const needsGuide = minutes > SELF_SERVE_MAX && !isStaff
@@ -61,7 +61,22 @@ export default function BookingSheet({ live, profile, guides, onClose, onBooked 
       if (!result.needs_approval && start.getTime() - Date.now() < 10 * 60000) {
         try { await checkIn(sb, result.booking_id); checkedIn = true } catch { /* window edge; not fatal */ }
       }
-      setDone({ pending: result.needs_approval, end, checkedIn })
+      // Over the gate: the server mints the approval link and DMs the guide on
+      // Slack. The student never sees the link (PLAN.md §6.1).
+      let notified: 'slack' | 'none' = 'none'
+      let note: string | undefined
+      if (result.needs_approval) {
+        try {
+          const res = await fetch('/api/approvals/notify', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ bookingId: result.booking_id }),
+          })
+          const body = (await res.json()) as { notified?: 'slack' | 'none'; error?: string }
+          notified = body.notified === 'slack' ? 'slack' : 'none'
+          if (notified === 'none') note = body.error
+        } catch { note = 'Could not reach Slack.' }
+      }
+      setDone({ pending: result.needs_approval, end, checkedIn, notified, note })
       onBooked()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong.')
@@ -92,7 +107,7 @@ export default function BookingSheet({ live, profile, guides, onClose, onBooked 
         </div>
 
         {done ? (
-          <Confirmation pending={done.pending} checkedIn={done.checkedIn} start={start} end={done.end} guideEmail={guideEmail} onClose={onClose} />
+          <Confirmation pending={done.pending} checkedIn={done.checkedIn} notified={done.notified} note={done.note} start={start} end={done.end} guideEmail={guideEmail} onClose={onClose} />
         ) : (
           <div className="space-y-5">
             {/* When. Students book for the next two hours, not next week (D10). */}
@@ -179,9 +194,9 @@ export default function BookingSheet({ live, profile, guides, onClose, onBooked 
             {/* Guide, only past the gate */}
             {needsGuide && (
               <div className="rounded-xl border border-cyan/40 bg-cyan/10 p-4">
-                <p className="text-sm font-bold">Over 2 hours — a guide needs to approve this.</p>
+                <p className="text-sm font-bold">Over 1 hour — a guide needs to approve this.</p>
                 <p className="mt-1 text-sm text-muted">
-                  The room is held for you until they answer, or until the booking would start.
+                  We&apos;ll message them on Slack. The room is held for you until they answer, or until the booking would start.
                 </p>
                 {guides.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -235,16 +250,19 @@ export default function BookingSheet({ live, profile, guides, onClose, onBooked 
 }
 
 function Confirmation({
-  pending, checkedIn, start, end, guideEmail, onClose,
-}: { pending: boolean; checkedIn: boolean; start: Date; end: Date; guideEmail: string; onClose: () => void }) {
+  pending, checkedIn, notified, note, start, end, guideEmail, onClose,
+}: { pending: boolean; checkedIn: boolean; notified: 'slack' | 'none'; note?: string; start: Date; end: Date; guideEmail: string; onClose: () => void }) {
+  const guideName = guideEmail.split('@')[0].split('.')[0].replace(/^\w/, (c) => c.toUpperCase())
   return (
     <div className="space-y-4">
       <div className={`rounded-xl p-4 ${pending ? 'bg-cyan/10' : 'bg-green-50 dark:bg-green-950'}`}>
-        <p className="font-bold">{pending ? 'Request sent' : 'You’re booked'}</p>
+        <p className="font-bold">{pending ? (notified === 'slack' ? `Asked ${guideName} on Slack` : 'Request saved') : 'You’re booked'}</p>
         <p className="mt-1 text-sm text-muted">
           {fmtRange(start, end)}
           {pending ? (
-            <> · Held for you until <span className="font-medium text-foreground">{guideEmail}</span> answers.</>
+            notified === 'slack'
+              ? <> · The room is held for you until they answer. You&apos;ll get a Slack message either way.</>
+              : <> · Held for you until <span className="font-medium text-foreground">{guideEmail}</span> answers. {note ? <span className="text-amber-700 dark:text-amber-400">{note}</span> : 'Ask them directly.'}</>
           ) : checkedIn ? (
             <> · You’re checked in.</>
           ) : (

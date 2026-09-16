@@ -4,6 +4,8 @@ import { NextResponse, type NextRequest } from 'next/server'
 const PUBLIC_PATHS = [
   '/login',
   '/auth',
+  '/approve',   // guides arrive from a Slack DM, signed out; the token is the credential
+
   // The fake-data preview exists only under `next dev`; the page itself 404s elsewhere.
   ...(process.env.NODE_ENV === 'development' ? ['/dev'] : []),
 ]

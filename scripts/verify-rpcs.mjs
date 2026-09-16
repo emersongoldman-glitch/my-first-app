@@ -74,9 +74,11 @@ try {
   console.log('\ncreate_booking — happy path & the 2-hour gate')
   await as(aarya)
   const b1 = await create(hallway3, T(0), T(1))
-  check('student books 1h → reserved', b1.status === 'reserved' && !b1.needs_approval)
+  check('student books exactly 1h → reserved (boundary of the gate, D14)', b1.status === 'reserved' && !b1.needs_approval)
+  let r = await expectErr(() => create(hallway4, T(0), T(1, 15)), /over 60 minutes/)
+  check('1h15m with no guide is refused', r.ok, r.msg)
 
-  let r = await expectErr(() => create(conf1, T(0), T(3)), /guide's approval/)
+  r = await expectErr(() => create(conf1, T(0), T(3)), /guide's approval/)
   check('3h with no guide email is refused', r.ok, r.msg)
 
   r = await expectErr(() => create(conf1, T(0), T(3), { guide: 'kent@gmail.com' }), /alpha\.school/)
@@ -193,17 +195,21 @@ try {
   check('guide force-cancels, with reason in audit log', await status(b3.booking_id) === 'cancelled' && fc?.detail?.reason === 'assembly')
 
   // =========================================================================
-  console.log('\nextend_booking — D2: total length, not delta')
+  console.log('\nextend_booking — D2: total length, not delta (gate is 60 min, D14)')
   await as(gus)
-  const e1 = await create(hallway3, T(0), T(1))            // 60 min (b1 was cancelled, slot free)
-  await q(`select extend_booking($1, $2)`, [e1.booking_id, T(1, 30)])
-  check('60 → 90 min ok', (await q(`select upper(during) u from bookings where id=$1`, [e1.booking_id])).rows[0].u.getTime() === T(1, 30).getTime())
-  r = await expectErr(() => q(`select extend_booking($1, $2)`, [e1.booking_id, T(2, 30)]), /pass the 120 minute limit/)
-  check('90 → 150 min refused: crosses 2h gate by total', r.ok, r.msg)
+  const e1 = await create(hallway3, T(0), T(0, 45))        // 45 min (b1 was cancelled, slot free)
+  await q(`select extend_booking($1, $2)`, [e1.booking_id, T(1)])
+  check('45 → 60 min ok', (await q(`select upper(during) u from bookings where id=$1`, [e1.booking_id])).rows[0].u.getTime() === T(1).getTime())
+  r = await expectErr(() => q(`select extend_booking($1, $2)`, [e1.booking_id, T(1, 15)]), /pass the 60 minute limit/)
+  check('60 → 75 min refused: crosses the 1h gate by total', r.ok, r.msg)
   await as(izzy)
-  const e2 = await create(hallway3, T(1, 45), T(2, 45))    // starts inside e1's possible 2h reach
+  const e2 = await create(hallway3, T(1), T(1, 45))        // right after e1
   await as(gus)
-  r = await expectErr(() => q(`select extend_booking($1, $2)`, [e1.booking_id, T(2)]))  // 120 min: gate allows, constraint refuses
+  await q(`update bookings set during = tstzrange($2, $3, '[)') where id = $1`, [e1.booking_id, T(0), T(0, 45)])  // shrink back so a 60-min extension is possible
+  await as(izzy)
+  await q(`update bookings set during = tstzrange($2, $3, '[)') where id = $1`, [e2.booking_id, T(0, 50), T(1, 45)])  // e2 now starts at :50, inside e1's 60-min reach
+  await as(gus)
+  r = await expectErr(() => q(`select extend_booking($1, $2)`, [e1.booking_id, T(1)]))  // 60 min: gate allows, constraint refuses
   check('extending into another booking rejected by constraint', r.ok && /23P01|overlap/.test(r.msg), r.msg)
   void e2
 

@@ -154,7 +154,7 @@ they can be tuned in week two without a deploy.
 |---|---|---|
 | Slot granularity | 15 min | Fine enough to be useful, coarse enough to scan |
 | Min booking | 15 min | — |
-| **Max booking without approval** | **2 h** | **Any room, any student. Over 2 h needs a guide — see §6.1** |
+| **Max booking without approval** | **1 h** | **Any room, any student. Over 1 h needs a guide — see §6.1. Was 2 h (D14)** |
 | Max booking with guide approval | 8 h | Effectively a full day; the guide is the judgment |
 | **Booking horizon** | **2 h ahead** (students); staff exempt | Rooms get booked when needed, not squatted days out. See D10 |
 | Concurrent bookings per student | 2 | One now, one later |
@@ -164,7 +164,7 @@ they can be tuned in week two without a deploy.
 | **No-show release** | **5 min after start** | **The single most important rule — see §6.4** |
 | Pending-approval expiry | at booking start time | An unanswered request can't hold a room forever |
 
-### 6.1 Bookings over 2 hours require guide approval
+### 6.1 Bookings over 1 hour require guide approval
 
 Two hours is the ceiling a student can take on their own, for **every room** — pods and
 conference rooms alike. A single number is easier to remember than a per-room matrix,
@@ -686,6 +686,8 @@ Settled, with the reasoning, so they don't get reopened mid-build.
 | D11 | **Everyone confirms guide-or-student once at first sign-in; "guide" is a claim checked against `staff_allowlist`.** They must type the email they signed in with, and it must be on the list. Staff maintain the list per campus. | 2026-09-15 | Self-selection alone would let a student grant themselves override and room-management powers. Typing the email is a deliberate confirmation, not a credential — Google already proved who they are. |
 | D12 | **No in-app chat. "Message on Slack" deep-links into a DM instead.** Slack ids are looked up by email server-side through a Slack app and cached 7 days. | 2026-09-15 | Students already use Slack. An in-app messaging surface for minors means moderation, retention, and abuse handling the app should not own. |
 | D13 | **The map is schematic and data-driven**, not a traced floor plan: zones as areas, rooms as tiles sized by seats. A traced plan can be layered on later if a campus supplies one. | 2026-09-15 | A hand-drawn plan breaks the moment another campus renames or adds rooms (D-rooms management). This one redraws itself from the rooms table. |
+| D14 | **The approval gate is 1 hour, not 2.** One row in `settings`; the RPCs read it at call time. | 2026-09-16 | An hour is a study block. Anything longer is worth a guide glancing at. |
+| D15 | **Approval requests go to the guide as a Slack DM with Approve / Decline buttons.** The buttons open a confirm page; only its POST decides. The student is told the result on Slack too. Email path retired. | 2026-09-16 | Guides live in Slack and answer from their phone. Deciding on GET would let Slack's link-preview fetcher approve requests by itself. Also removes the DNS/email dependency that was blocking Phase 2. |
 | D9 | **Preferred names are seeded, not opt-in.** `display_name` on `profiles`, pre-filled for guides and for students from their roster name; everyone can change their own. Clay's account is `dustin.hansford@` (legal name); he goes by Clay. | 2026-09-15 | Google returns account names, not used names. A People board showing names students don't recognise defeats the app's whole purpose — and leaving people to find a settings toggle means most never will. |
 
 Question 6 in §11 (can a student re-ask a different guide after a decline) stays open —

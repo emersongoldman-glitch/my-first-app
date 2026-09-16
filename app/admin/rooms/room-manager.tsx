@@ -12,6 +12,7 @@ export type ManagedRoom = {
   capacity: number
   kind: 'pod' | 'conference' | 'special'
   bookable: boolean
+  shared: boolean
   sort: number
   booking_count: number
 }
@@ -30,7 +31,7 @@ export default function RoomManager({ zones: z0, rooms: r0 }: { zones: ManagedZo
     const sb = createClient()
     const [{ data: zs }, { data: rs }] = await Promise.all([
       sb.from('zones').select('id, name, floor, sort').order('sort'),
-      sb.from('rooms').select('id, slug, name, zone_id, capacity, kind, bookable, sort, bookings(count)').order('sort'),
+      sb.from('rooms').select('id, slug, name, zone_id, capacity, kind, bookable, shared, sort, bookings(count)').order('sort'),
     ])
     if (zs) setZones(zs as ManagedZone[])
     if (rs) setRooms((rs as unknown as (ManagedRoom & { bookings: { count: number }[] })[]).map(({ bookings, ...r }) => ({
@@ -152,6 +153,13 @@ export default function RoomManager({ zones: z0, rooms: r0 }: { zones: ManagedZo
                   className="rounded-lg border border-border bg-background px-2 py-1 text-sm" title="Move to zone">
                   {zones.map((zz) => <option key={zz.id} value={zz.id}>{zz.name}</option>)}
                 </select>
+                <button
+                  onClick={() => updateRoom(r.id, { shared: !r.shared }, r.shared ? `${r.name}: one booking at a time.` : `${r.name}: booked by seat.`)}
+                  className={`rounded-lg px-2 py-1 text-xs font-bold ${r.shared ? 'bg-cyan/15 text-navy dark:text-cyan' : 'text-muted hover:bg-background'}`}
+                  title="Shared: several people can book at once, up to the seat count. Off: one booking at a time."
+                >
+                  {r.shared ? 'by seat' : 'exclusive'}
+                </button>
                 <button onClick={() => updateRoom(r.id, { bookable: !r.bookable }, r.bookable ? `${r.name} retired.` : `${r.name} is bookable again.`)}
                   className={`rounded-lg px-2 py-1 text-xs font-bold ${r.bookable ? 'text-muted hover:bg-background' : 'bg-navy text-white'}`}>
                   {r.bookable ? 'retire' : 'restore'}
@@ -178,6 +186,7 @@ export default function RoomManager({ zones: z0, rooms: r0 }: { zones: ManagedZo
       <p className="text-xs text-muted">
         Retired rooms keep their history and vanish from the board; restore them any time. A room that has never
         been booked can be deleted outright. Room names are free text — “Pod”, “Study Room”, “Booth”, whatever your campus calls them.
+        <br />“By seat” rooms let several people book at once until the seats run out; “exclusive” rooms take one booking at a time.
       </p>
 
       {toast && (

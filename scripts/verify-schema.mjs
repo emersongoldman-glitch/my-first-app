@@ -161,7 +161,8 @@ try {
   check('back-to-back booking is allowed', touchOk)
 
   // A pending request must hold the room (D1), and releasing must free it.
-  const roomId2 = (await client.query(`select id from rooms where slug = 'conf-1'`)).rows[0].id
+  // (A pod: conference rooms are shared by seat since D17, tested below.)
+  const roomId2 = (await client.query(`select id from rooms where slug = 'hallway-4'`)).rows[0].id
   const pending = (await client.query(
     `insert into bookings (room_id, user_id, booked_by, during, status)
      values ($1,$2,$2, tstzrange('2026-09-17 13:00Z','2026-09-17 17:00Z'), 'pending_approval')
@@ -196,6 +197,33 @@ try {
     await mk('2026-09-18 09:00Z', '2026-09-18 10:00Z')
   } catch { noShowFrees = false }
   check('a no-show release reopens the slot (§6.4)', noShowFrees)
+
+  // --- shared rooms (D17) --------------------------------------------------
+  console.log('\nShared rooms (D17):')
+  const conf3 = (await client.query(`select id, capacity, shared from rooms where slug = 'conf-3'`)).rows[0]
+  check('Conference Room 3 is shared with 8 seats', conf3.shared === true && conf3.capacity === 8)
+  const confFloor = (await client.query(`select z.floor from rooms r join zones z on z.id = r.zone_id where r.slug = 'conf-1'`)).rows[0].floor
+  check('conference rooms are on the 2nd floor', confFloor === 2)
+  const seat = (seats, from, to) => client.query(
+    `insert into bookings (room_id, user_id, booked_by, during, seats)
+     values ($1, $2, $2, tstzrange($3::timestamptz, $4::timestamptz, '[)'), $5) returning id, exclusive`,
+    [conf3.id, studentId, from, to, seats])
+  const s1 = await seat(3, '2026-09-20 14:00Z', '2026-09-20 15:00Z')
+  const s2 = await seat(4, '2026-09-20 14:30Z', '2026-09-20 15:30Z')
+  check('two people can book the same shared room at once (3 + 4 of 8)', s1.rowCount === 1 && s2.rowCount === 1 && s1.rows[0].exclusive === false)
+  let full = null
+  try { await seat(2, '2026-09-20 14:45Z', '2026-09-20 15:15Z') } catch (e) { full = e }
+  check('the 8th+ seat is refused (2 more would make 9)', full?.code === '23P01' && /Only 1 of 8 seats/.test(full.message), full?.message ?? 'accepted')
+  const last = await seat(1, '2026-09-20 14:45Z', '2026-09-20 15:15Z')
+  check('exactly the last seat is accepted', last.rowCount === 1)
+  let tooBig = null
+  try { await seat(9, '2026-09-21 14:00Z', '2026-09-21 15:00Z') } catch (e) { tooBig = e }
+  check('asking for more seats than the room has is refused', /only has 8 seats/.test(tooBig?.message ?? ''), tooBig?.message)
+  const pod = (await client.query(`select id from rooms where slug = 'underpass-1'`)).rows[0].id
+  await client.query(`insert into bookings (room_id, user_id, booked_by, during) values ($1,$2,$2, tstzrange('2026-09-20 14:00Z','2026-09-20 15:00Z','[)'))`, [pod, studentId])
+  let podClash = null
+  try { await client.query(`insert into bookings (room_id, user_id, booked_by, during) values ($1,$2,$2, tstzrange('2026-09-20 14:30Z','2026-09-20 15:30Z','[)'))`, [pod, studentId]) } catch (e) { podClash = e }
+  check('pods are still exclusive', podClash?.code === '23P01')
 
   // --- RLS -----------------------------------------------------------------
   console.log('\nRow-level security:')

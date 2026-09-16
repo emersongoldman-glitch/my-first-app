@@ -19,7 +19,7 @@ insert into zones (name, floor, sort) values
   ('Hallway',       1, 20),
   ('Atrium',        1, 30),
   ('Pomodoro Room', 1, 40),
-  ('Conference',    1, 50),   -- TBC
+  ('Conference',    2, 50),   -- upstairs (confirmed 2026-09-16)
   ('Upstairs',      2, 60)
 on conflict (name) do update set floor = excluded.floor, sort = excluded.sort;
 
@@ -45,9 +45,9 @@ from (values
   ('hallway-6',        'Hallway Pod 6',         'Hallway',       1, 'pod',         60),
   ('atrium-double',    'Atrium Double Pod',     'Atrium',        2, 'pod',         10),
   ('pomodoro',         'Pomodoro Pod',          'Pomodoro Room', 1, 'pod',         10),
-  ('conf-1',           'Conference Room 1',     'Conference',    6, 'conference',  10),  -- capacity TBC
-  ('conf-2',           'Conference Room 2',     'Conference',    6, 'conference',  20),  -- capacity TBC
-  ('conf-3',           'Conference Room 3',     'Conference',    6, 'conference',  30),  -- capacity TBC
+  ('conf-1',           'Conference Room 1',     'Conference',    4, 'conference',  10),
+  ('conf-2',           'Conference Room 2',     'Conference',    4, 'conference',  20),
+  ('conf-3',           'Conference Room 3',     'Conference',    8, 'conference',  30),
   ('conf-4',           'Conference Room 4',     'Conference',    6, 'conference',  40),  -- capacity TBC
   ('upstairs-1',       'Upstairs Pod 1',        'Upstairs',      1, 'pod',         10),
   ('upstairs-2',       'Upstairs Pod 2',        'Upstairs',      1, 'pod',         20),
@@ -61,6 +61,9 @@ on conflict (slug) do update
       capacity = excluded.capacity,
       kind     = excluded.kind,
       sort     = excluded.sort;
+
+-- Conference rooms are booked by seat (D17); pods stay exclusive.
+update rooms set shared = (kind = 'conference');
 
 do $$
 declare n int;

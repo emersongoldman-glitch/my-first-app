@@ -81,7 +81,8 @@ function Tile({ live, zoneName, me, now, onTap }: { live: RoomLive; zoneName: st
 
   const inUse = current?.status === 'checked_in'
   const line =
-    state === 'open' ? 'Open'
+    room.shared ? (live.seatsFree === 0 ? `Full · ${room.capacity} seats` : `${live.seatsFree} of ${room.capacity} seats free`)
+    : state === 'open' ? 'Open'
     : state === 'free_until' && next ? `Open until ${fmtTime(next.start)}`
     : state === 'booked' && current ? `${mine ? 'You' : firstName(displayName(current.user))} until ${fmtTime(current.end)}`
     : state === 'held' && current ? `Held for ${firstName(displayName(current.user))}`

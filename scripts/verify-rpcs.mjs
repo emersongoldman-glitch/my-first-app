@@ -66,8 +66,8 @@ try {
   const start = new Date(FAKE_NOW)
   const T = (h, m = 0) => new Date(start.getTime() + (h * 60 + m) * 60000)
   const create = (roomId, from, to, extra = {}) => q(
-    `select create_booking($1, $2, $3, $4, $5, $6) r`,
-    [roomId, from, to, extra.purpose ?? null, extra.guide ?? null, extra.forUser ?? null]
+    `select create_booking($1, $2, $3, $4, $5, $6, $7) r`,
+    [roomId, from, to, extra.purpose ?? null, extra.guide ?? null, extra.forUser ?? null, extra.seats ?? 1]
   ).then(r => r.rows[0].r)
 
   // =========================================================================
@@ -93,8 +93,10 @@ try {
   check('guide_mru remembers the ask, unconfirmed', mru && mru.confirmed === false)
 
   await as(anya)
-  r = await expectErr(() => create(conf1, T(1), T(2)))
-  check('pending request HOLDS the room against another student (D1)', r.ok && /23P01|overlap/.test(r.msg), r.msg)
+  r = await expectErr(() => create(conf1, T(1), T(2), { seats: 4 }))
+  check('pending request HOLDS its seats: 4 more of 4 refused (D1, shared room)', r.ok && /23P01|seats are free/.test(r.msg), r.msg)
+  const share = await create(conf1, T(1), T(2), { seats: 3 })
+  check('…but 3 of the remaining 3 seats are fine (shared room, D17)', share.status === 'reserved')
 
   r = await expectErr(() => create(hallway3, T(0, 30), T(1, 30)))
   check('overlapping a reserved booking is rejected', r.ok && /23P01|overlap/.test(r.msg), r.msg)

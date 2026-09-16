@@ -214,8 +214,19 @@ type ActionProps = {
 }
 
 function StatusLine({ live, now, me }: { live: RoomLive; now: Date; me: string }) {
-  const { state, current, next } = live
+  const { state, current, next, room } = live
   const mine = current?.user_id === me
+  if (room.shared) {
+    const names = (live.occupants ?? []).map((b) => (b.user_id === me ? 'you' : displayName(b.user)))
+    return (
+      <p className="text-sm text-muted">
+        {live.seatsFree === 0
+          ? <>Full · <span className="text-foreground">{names.join(', ')}</span></>
+          : <><b className="text-foreground">{live.seatsFree} of {room.capacity}</b> seats free{names.length > 0 && <> · in there now: <span className="text-foreground">{names.join(', ')}</span></>}</>}
+        {next && (live.occupants ?? []).length === 0 && <> · next at {fmtTime(next.start)}</>}
+      </p>
+    )
+  }
   return (
     <p className="text-sm text-muted">
       {state === 'open' && 'Open now'}
@@ -235,7 +246,9 @@ function StatusLine({ live, now, me }: { live: RoomLive; now: Date; me: string }
 }
 
 function Actions({ live, now, me, isStaff, busy, onQuick, onMore, onCheckIn, onCancel }: ActionProps) {
-  const { state, current } = live
+  const { state } = live
+  // In a shared room "current" means my own seat booking, if any.
+  const current = live.room.shared ? (live.occupants ?? []).find((b) => b.user_id === me) : live.current
   const mine = current?.user_id === me
   const canCheckIn =
     current?.status === 'reserved' && (mine || isStaff) &&
@@ -246,6 +259,7 @@ function Actions({ live, now, me, isStaff, busy, onQuick, onMore, onCheckIn, onC
     <div className="flex shrink-0 flex-wrap gap-2">
       {(state === 'open' || state === 'free_until') && (
         <>
+          {live.room.shared && <span className="self-center text-xs text-muted">1 seat:</span>}
           {[30, 60].map((m) => (
             <button key={m} disabled={busy || !fitsQuick(live, m)} onClick={() => onQuick(m)}
               className="rounded-lg bg-navy px-3 py-1.5 text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-40">
@@ -285,7 +299,7 @@ function RoomRow(props: ActionProps & { roomBookings: Timed[] }) {
         </div>
         <Actions {...props} />
       </div>
-      {open && <NextTwoHours bookings={roomBookings} now={now} me={me} />}
+      {open && <NextTwoHours bookings={roomBookings} now={now} me={me} room={live.room} />}
     </li>
   )
 }
@@ -306,7 +320,7 @@ function RoomSheet(props: ActionProps & { roomBookings: Timed[]; onClose: () => 
         </div>
         <StatusLine live={live} now={now} me={me} />
         <div className="mt-4"><Actions {...props} /></div>
-        <NextTwoHours bookings={roomBookings} now={now} me={me} />
+        <NextTwoHours bookings={roomBookings} now={now} me={me} room={live.room} />
       </div>
     </div>
   )
@@ -324,12 +338,47 @@ function Dot({ state }: { state: RoomLive['state'] }) {
 const WINDOW_MIN = 120
 const SLOT_MIN = 15
 
-function NextTwoHours({ bookings, now, me }: { bookings: Timed[]; now: Date; me: string }) {
+function NextTwoHours({ bookings, now, me, room }: { bookings: Timed[]; now: Date; me: string; room?: Room }) {
   const start = new Date(Math.floor(now.getTime() / 60000) * 60000)
   const end = addMinutes(start, WINDOW_MIN)
   const inWindow = bookings
     .filter((b) => b.end > start && b.start < end)
     .sort((a, b) => a.start.getTime() - b.start.getTime())
+
+  // Shared room: overlapping bookings are normal, so show each one with its
+  // seats and colour the strip by how full the room is.
+  if (room?.shared) {
+    const cells = Array.from({ length: WINDOW_MIN / SLOT_MIN }, (_, i) => {
+      const mid = addMinutes(start, i * SLOT_MIN + SLOT_MIN / 2)
+      const taken = inWindow.filter((x) => x.start <= mid && mid < x.end).reduce((n, x) => n + (x.seats ?? 1), 0)
+      return taken === 0 ? 'open' : taken >= room.capacity ? 'full' : 'partial'
+    })
+    return (
+      <div className="mt-4 rounded-lg border border-border bg-surface p-3">
+        <div className="mb-2 flex items-center justify-between text-xs text-muted">
+          <span className="font-bold uppercase tracking-wider">Next 2 hours · {room.capacity} seats</span>
+          <span>{fmtTime(start)} – {fmtTime(end)}</span>
+        </div>
+        <div className="flex gap-0.5" aria-hidden>
+          {cells.map((c, i) => (
+            <span key={i} className={`h-2.5 flex-1 rounded-sm ${c === 'full' ? 'bg-amber-500' : c === 'partial' ? 'bg-amber-300' : 'bg-green-500/60'}`} />
+          ))}
+        </div>
+        <ul className="mt-3 space-y-1.5 text-sm">
+          {inWindow.length === 0 && <li className="font-medium text-green-700 dark:text-green-400">All {room.capacity} seats open</li>}
+          {inWindow.map((b) => (
+            <li key={b.id} className="flex items-baseline gap-3">
+              <span className="w-[8.5rem] shrink-0 tabular-nums text-muted">{fmtTime(b.start)} – {fmtTime(b.end)}</span>
+              <span>
+                <span className="font-bold">{b.user_id === me ? 'You' : displayName(b.user)}</span>
+                <span className="text-muted">{' · '}{b.seats ?? 1} {b.seats === 1 ? 'seat' : 'seats'}{b.status === 'pending_approval' ? ' · awaiting approval' : ''}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
 
   const cells = Array.from({ length: WINDOW_MIN / SLOT_MIN }, (_, i) => {
     const mid = addMinutes(start, i * SLOT_MIN + SLOT_MIN / 2)

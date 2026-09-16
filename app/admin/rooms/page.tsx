@@ -19,7 +19,7 @@ export default async function ManageRoomsPage() {
     // outright and which must be retired to keep history intact.
     supabase
       .from('rooms')
-      .select('id, slug, name, zone_id, capacity, kind, bookable, sort, bookings(count)')
+      .select('id, slug, name, zone_id, capacity, kind, bookable, shared, sort, bookings(count)')
       .order('sort'),
   ])
 

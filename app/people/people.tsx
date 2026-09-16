@@ -135,9 +135,9 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
       .sort((a, b) => parseRange(a.during).start.getTime() - parseRange(b.during).start.getTime())[0]
     if (next) {
       const r = roomById.get(next.room_id)
-      return { text: `Not in a room · has ${r?.name ?? 'a room'} at ${fmtTime(parseRange(next.during).start)}`, tone: 'none' }
+      return { text: `Not in a private space · has ${r?.name ?? 'a room'} at ${fmtTime(parseRange(next.during).start)}`, tone: 'none' }
     }
-    return { text: 'Not in a room right now', tone: 'none' }
+    return { text: 'Not in a private space right now', tone: 'none' }
   }
 
   // Default view: everyone who is somewhere right now. Guides first.
@@ -221,7 +221,7 @@ export default function People({ me, rooms, initialCurrent, initialPresence }: P
                       {h.name}
                       {h.title && <span className="ml-2 font-normal text-muted">{h.title}</span>}
                     </p>
-                    <p className="truncate text-sm text-muted">On Slack · hasn’t used Campus Rooms yet</p>
+                    <p className="truncate text-sm text-muted">Not in a private space · message them on Slack</p>
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">

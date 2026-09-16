@@ -25,6 +25,8 @@ export type Booking = {
   room_id: number
   user_id: string
   booked_by: string
+  /** Seats taken in a shared room; always 1 for exclusive rooms (D17). */
+  seats: number
   /** Postgres tstzrange as text, e.g. `["2026-09-16 15:00:00+00","2026-09-16 16:00:00+00")` */
   during: string
   purpose: string | null
@@ -43,6 +45,8 @@ export type Room = {
   kind: 'pod' | 'conference' | 'special'
   max_minutes: number | null
   bookable: boolean
+  /** Booked by seat (overlapping bookings allowed up to capacity) rather than exclusively. */
+  shared: boolean
   sort: number
   zones: { id: number; name: string; floor: number; sort: number } | null
 }
@@ -130,6 +134,8 @@ export async function createBooking(
     purpose?: string
     guideEmail?: string
     forUser?: string
+    /** Shared rooms only; defaults to 1. */
+    seats?: number
   }
 ): Promise<CreateBookingResult> {
   const { data, error } = await sb.rpc('create_booking', {
@@ -139,6 +145,7 @@ export async function createBooking(
     p_purpose: args.purpose ?? null,
     p_guide_email: args.guideEmail ?? null,
     p_for_user: args.forUser ?? null,
+    p_seats: args.seats ?? 1,
   })
   if (error) throw new Error(friendly(error.message))
   return data as CreateBookingResult
@@ -189,5 +196,6 @@ function friendly(msg: string): string {
   if (/bookings_no_overlap|conflicting key value/.test(msg)) {
     return 'Someone just took that room for that time. Pick another slot or another room.'
   }
+  // Shared-room seat check speaks for itself ("Only 2 of 8 seats are free then.")
   return msg
 }

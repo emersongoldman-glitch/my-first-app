@@ -12,12 +12,16 @@ export type Timed = Booking & { start: Date; end: Date }
 export type RoomLive = {
   room: Room
   state: LiveState
-  /** The booking occupying the room right now, if any. */
+  /** The booking occupying the room right now, if any (exclusive rooms). */
   current?: Timed
   /** The next upcoming booking for this room today, if any. */
   next?: Timed
   /** For 'free_until': minutes until `next` begins. */
   freeMinutes?: number
+  /** Shared rooms (D17): everyone in the room right now, and the seat count. */
+  occupants?: Timed[]
+  seatsTaken?: number
+  seatsFree?: number
 }
 
 /** Show "free until…" only when the next booking is this close. */
@@ -36,6 +40,24 @@ export function liveStatus(room: Room, bookings: Timed[], now: Date): RoomLive {
   const mine = bookings
     .filter((b) => b.room_id === room.id && ACTIVE_STATUSES.has(b.status))
     .sort((a, b) => a.start.getTime() - b.start.getTime())
+
+  // Shared rooms are about seats, not a single occupant (D17). Open while any
+  // seat is free; "booked" only when full. Held requests count their seats.
+  if (room.shared) {
+    const occupants = mine.filter((b) => b.start <= now && now < b.end)
+    const seatsTaken = occupants.reduce((n, b) => n + (b.seats ?? 1), 0)
+    const seatsFree = Math.max(0, room.capacity - seatsTaken)
+    const next = mine.find((b) => b.start > now)
+    return {
+      room,
+      state: seatsFree > 0 ? 'open' : 'booked',
+      current: occupants[0],
+      next,
+      occupants,
+      seatsTaken,
+      seatsFree,
+    }
+  }
 
   const current = mine.find((b) => b.start <= now && now < b.end)
   if (current) {
@@ -84,6 +106,7 @@ export function groupByZone(live: RoomLive[]): ZoneGroup[] {
 
 /** The largest quick-book length (in minutes) that fits before the next booking. */
 export function fitsQuick(r: RoomLive, minutes: number): boolean {
+  if (r.room.shared) return (r.seatsFree ?? 0) > 0   // the database checks the exact window
   if (r.state === 'booked' || r.state === 'held') return false
   if (r.state === 'open') return true
   return (r.freeMinutes ?? 0) >= minutes

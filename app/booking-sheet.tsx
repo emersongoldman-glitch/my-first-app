@@ -28,6 +28,7 @@ export default function BookingSheet({ live, profile, guides, onClose, onBooked 
   const [start, setStart] = useState<Date>(() => nextSlot(now))
   const [minutes, setMinutes] = useState(60)
   const [purpose, setPurpose] = useState('')
+  const [seats, setSeats] = useState(1)
   const [guideEmail, setGuideEmail] = useState(guides[0]?.guide_email ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -55,6 +56,7 @@ export default function BookingSheet({ live, profile, guides, onClose, onBooked 
         end,
         purpose: purpose.trim() || undefined,
         guideEmail: needsGuide ? guideEmail.trim() : undefined,
+        seats: room.shared ? seats : 1,
       })
       // Walk-up: booking a room you are standing at counts as arriving.
       let checkedIn = false
@@ -163,6 +165,20 @@ export default function BookingSheet({ live, profile, guides, onClose, onBooked 
               </div>
             )}
 
+            {/* Seats — shared rooms only (D17) */}
+            {room.shared && (
+              <div>
+                <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted">
+                  Seats <span className="font-normal normal-case tracking-normal">· {live.seatsFree ?? room.capacity} of {room.capacity} free right now</span>
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {Array.from({ length: room.capacity }, (_, i) => i + 1).map((n) => (
+                    <Chip key={n} active={seats === n} onClick={() => setSeats(n)}>{n}</Chip>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* How long */}
             <div>
               <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-muted">How long</span>
@@ -240,7 +256,7 @@ export default function BookingSheet({ live, profile, guides, onClose, onBooked 
               disabled={busy || (needsGuide && !guideEmail.includes('@'))}
               className="w-full rounded-xl bg-navy px-4 py-3.5 font-bold text-white transition hover:opacity-90 disabled:opacity-50"
             >
-              {busy ? 'Booking…' : needsGuide ? 'Request approval' : `Book ${room.name}`}
+              {busy ? 'Booking…' : needsGuide ? 'Request approval' : room.shared ? `Book ${seats} ${seats === 1 ? 'seat' : 'seats'}` : `Book ${room.name}`}
             </button>
           </div>
         )}

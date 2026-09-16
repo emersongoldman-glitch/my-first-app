@@ -22,7 +22,7 @@ export default async function Home() {
       supabase.from('profiles').select('id, email, full_name, display_name, role').eq('id', user.id).single(),
       supabase
         .from('rooms')
-        .select('id, slug, name, capacity, kind, max_minutes, bookable, sort, zones(id, name, floor, sort)')
+        .select('id, slug, name, capacity, kind, max_minutes, bookable, shared, sort, zones(id, name, floor, sort)')
         .eq('bookable', true)
         .order('sort'),
       supabase
